@@ -22,44 +22,6 @@
 namespace pyston {
 namespace gc {
 
-class TraceStack {
-private:
-    std::vector<void*> v;
-
-public:
-    template <typename T> void pushall(T start, T end) { v.insert(v.end(), start, end); }
-
-    void push(void* p) { v.push_back(p); }
-
-    int size() { return v.size(); }
-
-    void reserve(int num) { v.reserve(num + v.size()); }
-
-    void* pop() {
-        if (v.size()) {
-            void* r = v.back();
-            v.pop_back();
-            return r;
-        }
-        return NULL;
-    }
-};
-
-class TraceStackGCVisitor : public GCVisitor {
-private:
-    bool isValid(void* p);
-
-public:
-    TraceStack* stack;
-    TraceStackGCVisitor(TraceStack* stack) : stack(stack) {}
-
-    // These all work on *user* pointers, ie pointers to the user_data section of GCAllocations
-    void visit(void* p) override;
-    void visitRange(void* const* start, void* const* end) override;
-    void visitPotential(void* p) override;
-    void visitPotentialRange(void* const* start, void* const* end) override;
-};
-
 // Mark this gc-allocated object as being a root, even if there are no visible references to it.
 // (Note: this marks the gc allocation itself, not the pointer that points to one.  For that, use
 // a GCRootHandle)

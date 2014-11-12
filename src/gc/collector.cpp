@@ -36,10 +36,47 @@
 namespace pyston {
 namespace gc {
 
-static TraceStack roots;
+class TraceStack {
+private:
+    std::vector<void*> v;
+
+public:
+    TraceStack() {}
+    TraceStack(const std::vector<void*>& rhs) {
+        for (void* p : rhs) {
+            assert(!isMarked(GCAllocation::fromUserData(p)));
+            push(p);
+        }
+    }
+
+    void push(void* p) {
+        GCAllocation* al = GCAllocation::fromUserData(p);
+
+        if (!isMarked(al)) {
+            setMark(al);
+
+            v.push_back(p);
+        }
+    }
+
+    int size() { return v.size(); }
+
+    void reserve(int num) { v.reserve(num + v.size()); }
+
+    void* pop() {
+        if (v.size()) {
+            void* r = v.back();
+            v.pop_back();
+            return r;
+        }
+        return NULL;
+    }
+};
+
+static std::vector<void*> roots;
 void registerPermanentRoot(void* obj) {
     assert(global_heap.getAllocationFromInteriorPointer(obj));
-    roots.push(obj);
+    roots.push_back(obj);
 
 #ifndef NDEBUG
     // Check for double-registers.  Wouldn't cause any problems, but we probably shouldn't be doing them.
@@ -86,11 +123,11 @@ GCRootHandle::~GCRootHandle() {
 
 
 
-bool TraceStackGCVisitor::isValid(void* p) {
+bool GCVisitor::isValid(void* p) {
     return global_heap.getAllocationFromInteriorPointer(p) != NULL;
 }
 
-void TraceStackGCVisitor::visit(void* p) {
+void GCVisitor::visit(void* p) {
     if (isNonheapRoot(p)) {
         return;
     } else {
@@ -99,21 +136,21 @@ void TraceStackGCVisitor::visit(void* p) {
     }
 }
 
-void TraceStackGCVisitor::visitRange(void* const* start, void* const* end) {
+void GCVisitor::visitRange(void* const* start, void* const* end) {
     while (start < end) {
         visit(*start);
         start++;
     }
 }
 
-void TraceStackGCVisitor::visitPotential(void* p) {
+void GCVisitor::visitPotential(void* p) {
     GCAllocation* a = global_heap.getAllocationFromInteriorPointer(p);
     if (a) {
         visit(a->user_data);
     }
 }
 
-void TraceStackGCVisitor::visitPotentialRange(void* const* start, void* const* end) {
+void GCVisitor::visitPotentialRange(void* const* start, void* const* end) {
     while (start < end) {
         visitPotential(*start);
         start++;
@@ -130,7 +167,7 @@ static void markPhase() {
     TraceStack stack(roots);
     collectStackRoots(&stack);
 
-    TraceStackGCVisitor visitor(&stack);
+    GCVisitor visitor(&stack);
 
     for (void* p : nonheap_roots) {
         Box* b = reinterpret_cast<Box*>(p);
@@ -151,13 +188,9 @@ static void markPhase() {
         assert(((intptr_t)p) % 8 == 0);
         GCAllocation* al = GCAllocation::fromUserData(p);
 
-        if (isMarked(al)) {
-            continue;
-        }
+        assert(isMarked(al));
 
         // printf("Marking + scanning %p\n", p);
-
-        setMark(al);
 
         GCKind kind_id = al->kind_id;
         if (kind_id == GCKind::UNTRACKED) {

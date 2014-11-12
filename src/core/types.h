@@ -122,7 +122,7 @@ class BoxedModule;
 class BoxedFunction;
 
 class ICGetattr;
-class ICSlotInfo;
+struct ICSlotInfo;
 
 class CFG;
 class AST;
@@ -254,7 +254,7 @@ public:
 };
 
 typedef std::vector<CompiledFunction*> FunctionList;
-class CallRewriteArgs;
+struct CallRewriteArgs;
 class CLFunction {
 public:
     int num_args;
@@ -387,9 +387,9 @@ public:
 class HiddenClass;
 extern HiddenClass* root_hcls;
 
-class SetattrRewriteArgs;
-class GetattrRewriteArgs;
-class DelattrRewriteArgs;
+struct SetattrRewriteArgs;
+struct GetattrRewriteArgs;
+struct DelattrRewriteArgs;
 
 struct HCAttrs {
 public:

@@ -211,7 +211,10 @@ public:
           code(code), llvm_code(llvm_code), effort(effort), times_called(0), line_table(nullptr),
           location_map(nullptr) {}
 
-    // TODO this will need to be implemented eventually, and delete line_table if it exists
+    // TODO this will need to be implemented eventually; things to delete:
+    // - line_table if it exists
+    // - location_map if it exists
+    // - all entries in ics (after deregistering them)
     ~CompiledFunction();
 };
 
@@ -323,9 +326,17 @@ std::string getFullNameOfClass(BoxedClass* cls);
 
 class Rewriter;
 class RewriterVar;
+class RuntimeIC;
+class CallattrIC;
+class NonzeroIC;
+class BinopIC;
 
 class Box;
 class BoxIterator {
+private:
+    Box* iter;
+    Box* value;
+
 public:
     BoxIterator(Box* iter) : iter(iter), value(nullptr) {}
 
@@ -333,20 +344,11 @@ public:
     bool operator!=(BoxIterator const& rhs) const { return !(*this == rhs); }
 
     BoxIterator& operator++();
-    BoxIterator operator++(int) {
-        BoxIterator tmp(*this);
-        operator++();
-        return tmp;
-    }
 
     Box* operator*() const { return value; }
     Box* operator*() { return value; }
 
     void gcHandler(GCVisitor* v);
-
-private:
-    Box* iter;
-    Box* value;
 };
 
 namespace gc {
@@ -462,6 +464,13 @@ public:
     // Doing this via invalidation means that instance attr lookups don't have
     // to guard on anything about the class.
     ICInvalidator dependent_icgetattrs;
+
+    // TODO: these don't actually get deallocated right now
+    std::shared_ptr<CallattrIC> hasnext_ic, next_ic;
+    std::shared_ptr<NonzeroIC> nonzero_ic;
+    CallattrIC* getHasnextIC();
+    CallattrIC* getNextIC();
+    NonzeroIC* getNonzeroIC();
 
     // Only a single base supported for now.
     // Is NULL iff this is object_cls

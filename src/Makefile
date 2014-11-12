@@ -150,7 +150,7 @@ COMMON_CXXFLAGS += -DGITREV=$(shell git rev-parse HEAD | head -c 12) -DLLVMREV=$
 COMMON_CXXFLAGS += -DDEFAULT_PYTHON_MAJOR_VERSION=$(PYTHON_MAJOR_VERSION) -DDEFAULT_PYTHON_MINOR_VERSION=$(PYTHON_MINOR_VERSION) -DDEFAULT_PYTHON_MICRO_VERSION=$(PYTHON_MICRO_VERSION)
 
 # Use our "custom linker" that calls gold if available
-COMMON_LDFLAGS := -v -B../tools/build_system -L/usr/lib/system -L/usr/local/Cellar/gmp/5.1.3/lib -lpthread -ldl -lcurses -lm -lsystem -lz -llzma -lreadline -lgmp
+COMMON_LDFLAGS := -v -B../tools/build_system -L/usr/lib/system -L/usr/local/Cellar/gmp/5.1.3/lib -lpthread -ldl -lcurses -lm -lsystem -lz -lreadline -lgmp
 # Make sure that we put all symbols in the dynamic symbol table so that MCJIT can load them;
 # TODO should probably do the linking before MCJIT
 #COMMON_LDFLAGS += -Wl,-E

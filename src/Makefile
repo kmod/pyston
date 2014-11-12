@@ -8,7 +8,7 @@ LLVM_REVISION_FILE := ../llvm_revision.txt
 LLVM_REVISION := $(shell cat $(LLVM_REVISION_FILE))
 
 USE_CLANG  := 1
-USE_CCACHE := 0
+USE_CCACHE := 1
 USE_DISTCC := 0
 
 ENABLE_VALGRIND := 0

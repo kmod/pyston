@@ -158,7 +158,7 @@ private:
     }
 
     template <int... S> Storage* make(impl::seq<S...>) {
-        return new Storage{ .self = this, .val = T(std::get<S>(ctor_args)...) };
+        return new Storage{.self = this, .val = T(std::get<S>(ctor_args)...) };
     }
 
 public:

@@ -153,8 +153,8 @@ public:
          # if 0
         llvm_error_code code;
         bool found_text = false, found_eh_frame = false;
-        uint64_t text_addr, text_size;
-        uint64_t eh_frame_addr, eh_frame_size;
+        uint64_t text_addr = -1, text_size = -1;
+        uint64_t eh_frame_addr = -1, eh_frame_size = -1;
 
         for (llvm::object::section_iterator I = Obj.begin_sections(), E = Obj.end_sections(); I != E; ++I) {
             llvm::StringRef name;
@@ -164,20 +164,30 @@ public:
             uint64_t addr, size;
             if (name == ".eh_frame") {
                 assert(!found_eh_frame);
+#if LLVMREV < 219314
                 if (I->getAddress(eh_frame_addr))
                     continue;
                 if (I->getSize(eh_frame_size))
                     continue;
+#else
+                eh_frame_addr = I->getAddress();
+                eh_frame_size = I->getSize();
+#endif
 
                 if (VERBOSITY())
                     printf("eh_frame: %llx %llx\n", eh_frame_addr, eh_frame_size);
                 found_eh_frame = true;
             } else if (name == ".text") {
                 assert(!found_text);
+#if LLVMREV < 219314
                 if (I->getAddress(text_addr))
                     continue;
                 if (I->getSize(text_size))
                     continue;
+#else
+                text_addr = I->getAddress();
+                text_size = I->getSize();
+#endif
 
                 if (VERBOSITY())
                     printf("text: %llx %llx\n", text_addr, text_size);

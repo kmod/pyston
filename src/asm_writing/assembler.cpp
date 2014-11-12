@@ -139,8 +139,6 @@ void Assembler::emitSIB(uint8_t scalebits, uint8_t index, uint8_t base) {
     emitByte((scalebits << 6) | (index << 3) | base);
 }
 
-
-
 void Assembler::mov(Immediate val, Register dest) {
     int rex = REX_W;
 
@@ -262,7 +260,67 @@ void Assembler::mov(Register src, Indirect dest) {
 }
 
 void Assembler::mov(Indirect src, Register dest) {
-    int rex = REX_W;
+    mov_generic(src, dest, MovType::Q);
+}
+void Assembler::movq(Indirect src, Register dest) {
+    mov_generic(src, dest, MovType::Q);
+}
+void Assembler::movl(Indirect src, Register dest) {
+    mov_generic(src, dest, MovType::L);
+}
+void Assembler::movb(Indirect src, Register dest) {
+    mov_generic(src, dest, MovType::B);
+}
+void Assembler::movzbl(Indirect src, Register dest) {
+    mov_generic(src, dest, MovType::ZBL);
+}
+void Assembler::movsbl(Indirect src, Register dest) {
+    mov_generic(src, dest, MovType::SBL);
+}
+void Assembler::movzwl(Indirect src, Register dest) {
+    mov_generic(src, dest, MovType::ZBL);
+}
+void Assembler::movswl(Indirect src, Register dest) {
+    mov_generic(src, dest, MovType::SBL);
+}
+void Assembler::movzbq(Indirect src, Register dest) {
+    mov_generic(src, dest, MovType::ZBQ);
+}
+void Assembler::movsbq(Indirect src, Register dest) {
+    mov_generic(src, dest, MovType::SBQ);
+}
+void Assembler::movzwq(Indirect src, Register dest) {
+    mov_generic(src, dest, MovType::ZWQ);
+}
+void Assembler::movswq(Indirect src, Register dest) {
+    mov_generic(src, dest, MovType::SWQ);
+}
+void Assembler::movslq(Indirect src, Register dest) {
+    mov_generic(src, dest, MovType::SLQ);
+}
+
+void Assembler::mov_generic(Indirect src, Register dest, MovType type) {
+    int rex;
+    switch (type) {
+        case MovType::Q:
+        case MovType::ZBQ:
+        case MovType::SBQ:
+        case MovType::ZWQ:
+        case MovType::SWQ:
+        case MovType::SLQ:
+            rex = REX_W;
+            break;
+        case MovType::L:
+        case MovType::B:
+        case MovType::ZBL:
+        case MovType::SBL:
+        case MovType::ZWL:
+        case MovType::SWL:
+            rex = 0;
+            break;
+        default:
+            RELEASE_ASSERT(false, "unrecognized MovType");
+    }
 
     int src_idx = src.base.regnum;
     int dest_idx = dest.regnum;
@@ -276,8 +334,44 @@ void Assembler::mov(Indirect src, Register dest) {
         dest_idx -= 8;
     }
 
-    emitRex(rex);
-    emitByte(0x8b); // opcode
+    if (rex)
+        emitRex(rex);
+
+    // opcode
+    switch (type) {
+        case MovType::Q:
+        case MovType::L:
+            emitByte(0x8b);
+            break;
+        case MovType::B:
+            emitByte(0x8a);
+            break;
+        case MovType::ZBQ:
+        case MovType::ZBL:
+            emitByte(0x0f);
+            emitByte(0xb6);
+            break;
+        case MovType::SBQ:
+        case MovType::SBL:
+            emitByte(0x0f);
+            emitByte(0xbe);
+            break;
+        case MovType::ZWQ:
+        case MovType::ZWL:
+            emitByte(0x0f);
+            emitByte(0xb7);
+            break;
+        case MovType::SWQ:
+        case MovType::SWL:
+            emitByte(0x0f);
+            emitByte(0xbf);
+            break;
+        case MovType::SLQ:
+            emitByte(0x63);
+            break;
+        default:
+            RELEASE_ASSERT(false, "unrecognized MovType");
+    }
 
     bool needssib = (src_idx == 0b100);
 
@@ -413,6 +507,74 @@ void Assembler::movsd(Indirect src, XMMRegister dest) {
     }
 }
 
+void Assembler::movss(Indirect src, XMMRegister dest) {
+    int rex = 0;
+    int src_idx = src.base.regnum;
+    int dest_idx = dest.regnum;
+
+    if (src_idx >= 8) {
+        trap();
+        rex |= REX_R;
+        src_idx -= 8;
+    }
+    if (dest_idx >= 8) {
+        trap();
+        rex |= REX_B;
+        dest_idx -= 8;
+    }
+
+    emitByte(0xf3);
+    if (rex)
+        emitRex(rex);
+    emitByte(0x0f);
+    emitByte(0x10);
+
+    bool needssib = (src_idx == 0b100);
+
+    int mode;
+    if (src.offset == 0)
+        mode = 0b00;
+    else if (-0x80 <= src.offset && src.offset < 0x80)
+        mode = 0b01;
+    else
+        mode = 0b10;
+
+    emitModRM(mode, dest_idx, src_idx);
+
+    if (needssib)
+        emitSIB(0b00, 0b100, src_idx);
+
+    if (mode == 0b01) {
+        emitByte(src.offset);
+    } else if (mode == 0b10) {
+        emitInt(src.offset, 4);
+    }
+}
+
+void Assembler::cvtss2sd(XMMRegister src, XMMRegister dest) {
+    int rex = 0;
+    int src_idx = src.regnum;
+    int dest_idx = dest.regnum;
+
+    if (src_idx >= 8) {
+        trap();
+        rex |= REX_R;
+        src_idx -= 8;
+    }
+    if (dest_idx >= 8) {
+        trap();
+        rex |= REX_B;
+        dest_idx -= 8;
+    }
+
+    emitByte(0xf3);
+    if (rex)
+        emitRex(rex);
+    emitByte(0x0f);
+    emitByte(0x5a);
+
+    emitModRM(0b11, src_idx, dest_idx);
+}
 
 void Assembler::push(Register reg) {
     // assert(0 && "This breaks unwinding, please don't use.");
@@ -713,7 +875,7 @@ void Assembler::emitBatchPop(int scratch_rbp_offset, int scratch_size, const std
         if (r.type == GenericRegister::GP) {
             Register gp = r.gp;
             assert(gp.regnum >= 0 && gp.regnum < 16);
-            mov(next_slot, gp);
+            movq(next_slot, gp);
             offset += 8;
         } else if (r.type == GenericRegister::XMM) {
             XMMRegister reg = r.xmm;

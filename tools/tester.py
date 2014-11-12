@@ -35,7 +35,7 @@ IMAGE = "pyston_dbg"
 KEEP_GOING = False
 FN_JUST_SIZE = 20
 EXTRA_JIT_ARGS = []
-TIME_LIMIT = 3
+TIME_LIMIT = 6
 
 # For fun, can test pypy.
 # Tough because the tester will check to see if the error messages are exactly the
@@ -68,7 +68,9 @@ def get_expected_output(fn):
                 pass
 
     # TODO don't suppress warnings globally:
-    p = subprocess.Popen(["python", "-Wignore", fn], stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=open("/dev/null"), preexec_fn=set_ulimits)
+    env = dict(os.environ)
+    env["PYTHONPATH"] = "../test/test_extension/build/lib.linux-x86_64-2.7/"
+    p = subprocess.Popen(["python", "-Wignore", fn], stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=open("/dev/null"), preexec_fn=set_ulimits, env=env)
     out, err = p.communicate()
     code = p.wait()
 

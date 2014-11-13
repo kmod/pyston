@@ -8,13 +8,13 @@ LLVM_REVISION_FILE := ../llvm_revision.txt
 LLVM_REVISION := $(shell cat $(LLVM_REVISION_FILE))
 
 USE_CLANG  := 1
-USE_CCACHE := 0
+USE_CCACHE := 1
 USE_DISTCC := 0
 
 ENABLE_VALGRIND := 0
 
 GDB := gdb
-#GCC_DIR := $(DEPS_DIR)/gcc-4.8.2-install
+GCC_DIR := /usr
 GTEST_DIR := $(DEPS_DIR)/gtest-1.7.0
 
 USE_DEBUG_LIBUNWIND := 0
@@ -48,8 +48,8 @@ FORCE_TRUNK_BINARIES := 0
 TOOLS_DIR := ../tools
 TESTS_DIR := ../test/tests
 
-#GPP := $(GCC_DIR)/bin/g++
-#GCC := $(GCC_DIR)/bin/gcc
+GPP := $(GCC_DIR)/bin/g++
+GCC := $(GCC_DIR)/bin/gcc
 
 ifeq ($(V),1)
 	VERBOSE := 1

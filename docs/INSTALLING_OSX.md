@@ -11,6 +11,11 @@ brew doctor
 ```
 
 ```
+brew install automake libtool gmp
+brew install ccache
+```
+
+```
 mkdir ~/pyston_deps
 git clone https://github.com/dropbox/pyston.git ~/pyston
 ```
@@ -27,7 +32,15 @@ make llvm -j4
 ```
 
 ```
-brew install ccache
+cd ~/pyston_deps
+git clone git://github.com/vinzenz/pypa
+mkdir pypa-install
+cd pypa
+./autogen.sh
+./autogen.sh # yes have to run twice
+./configure --prefix=$HOME/pyston_deps/pypa-install
+make -j4
+make install
 ```
 
 Update xcode?

@@ -518,6 +518,7 @@ template <> inline RewriterVar* RewriterVar::getAttrCast<uint32_t, uint64_t>(int
 template <> inline RewriterVar* RewriterVar::getAttrCast<uint64_t, uint64_t>(int offset, Location loc) {
     return getAttr(offset, loc, assembler::MovType::Q);
 }
+/*
 template <> inline RewriterVar* RewriterVar::getAttrCast<long long, long long>(int offset, Location loc) {
     return getAttr(offset, loc, assembler::MovType::Q);
 }
@@ -525,6 +526,7 @@ template <>
 inline RewriterVar* RewriterVar::getAttrCast<unsigned long long, unsigned long long>(int offset, Location loc) {
     return getAttr(offset, loc, assembler::MovType::Q);
 }
+*/
 }
 
 #endif

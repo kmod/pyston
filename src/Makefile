@@ -151,7 +151,7 @@ COMMON_CXXFLAGS += -DGITREV=$(shell git rev-parse HEAD | head -c 12) -DLLVMREV=$
 COMMON_CXXFLAGS += -DDEFAULT_PYTHON_MAJOR_VERSION=$(PYTHON_MAJOR_VERSION) -DDEFAULT_PYTHON_MINOR_VERSION=$(PYTHON_MINOR_VERSION) -DDEFAULT_PYTHON_MICRO_VERSION=$(PYTHON_MICRO_VERSION)
 
 # Use our "custom linker" that calls gold if available
-COMMON_LDFLAGS := -v -B../tools/build_system -L/usr/lib/system -L/usr/local/Cellar/gmp/5.1.3/lib -lpthread --lm -lsystem -lz -lreadline -lgmp
+COMMON_LDFLAGS := -v -B../tools/build_system -L/usr/lib/system -L/usr/local/Cellar/gmp/5.1.3/lib -lpthread -lm -lsystem -lz -lreadline -lgmp
 COMMON_LDFLAGS += $(DEPS_DIR)/pypa-install/lib/libpypa.a
 
 # Conditionally add libtinfo if available - otherwise nothing will be added
@@ -162,7 +162,6 @@ COMMON_LDFLAGS += `pkg-config tinfo && pkg-config tinfo --libs || echo ""`
 #COMMON_LDFLAGS += -Wl,-E
 
 # We get multiple shared libraries (libstdc++, libgcc_s) from the gcc installation:
-COMMON_LDFLAGS += -Wl,-rpath $(GCC_DIR)/lib64
 
 #ifneq ($(USE_DEBUG_LIBUNWIND),0)
 #	COMMON_LDFLAGS += -L$(DEPS_DIR)/libunwind-trunk-debug-install/lib

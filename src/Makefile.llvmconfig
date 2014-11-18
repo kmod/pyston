@@ -1,3 +1,3 @@
 # included by Makefile
 
-LLVM_CONFIGURE_LINE := $(LLVM_SRC)/configure --enable-targets=host --enable-clang --enable-libcpp
+LLVM_CONFIGURE_LINE := $(LLVM_SRC)/configure --enable-targets=host --enable-clang --enable-libcpp CXXFLAGS=-Qunused-arguments

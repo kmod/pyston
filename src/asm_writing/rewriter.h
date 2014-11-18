@@ -520,16 +520,60 @@ template <> inline RewriterVar* RewriterVar::getAttrCast<uint64_t, uint64_t>(int
 }
 
 #ifndef __APPLE__
+
 // OSX defines uint64_t as long long, but Linux defines it as long.
-// Python operates on long vs long long whereas we prefer to use the fixed-size types.
+//
+// This means that on Linux, 'long long' has no typedef in the intN_t hiercharchy,
+// and similarly for OSX but for 'long' instead.
+// So we have to add those specializations for those systems, but not on the other
+// or else we would have duplicate definitions.
+//
+// Partial template specialization would be very nice here :/
+
+static_assert(sizeof(long) == 8, "");
+static_assert(sizeof(long long) == 8, "");
+
+// On Linux, add mappings for long long -> long
+
 template <> inline RewriterVar* RewriterVar::getAttrCast<long long, long long>(int offset, Location loc) {
-    return getAttr(offset, loc, assembler::MovType::Q);
+    return getAttrCast<long, long>(offset, loc);
 }
 template <>
 inline RewriterVar* RewriterVar::getAttrCast<unsigned long long, unsigned long long>(int offset, Location loc) {
-    return getAttr(offset, loc, assembler::MovType::Q);
+    return getAttrCast<unsigned long, unsigned long>(offset, loc);
 }
+
+#else
+
+static_assert(sizeof(long) == 8, "");
+static_assert(sizeof(long long) == 8, "");
+
+// On OSX, add mappings for long -> long long
+
+template <> inline RewriterVar* RewriterVar::getAttrCast<long, int64_t>(int offset, Location loc) {
+    return getAttrCast<long long, int64_t>(offset, loc);
 }
+template <> inline RewriterVar* RewriterVar::getAttrCast<unsigned long, uint64_t>(int offset, Location loc) {
+    return getAttrCast<unsigned long long, uint64_t>(offset, loc);
+}
+template <> inline RewriterVar* RewriterVar::getAttrCast<uint8_t, unsigned long>(int offset, Location loc) {
+    return getAttrCast<uint8_t, unsigned long long>(offset, loc);
+}
+template <> inline RewriterVar* RewriterVar::getAttrCast<uint16_t, unsigned long>(int offset, Location loc) {
+    return getAttrCast<uint16_t, unsigned long long>(offset, loc);
+}
+template <> inline RewriterVar* RewriterVar::getAttrCast<uint32_t, unsigned long>(int offset, Location loc) {
+    return getAttrCast<uint32_t, unsigned long long>(offset, loc);
+}
+template <> inline RewriterVar* RewriterVar::getAttrCast<long, long>(int offset, Location loc) {
+    return getAttrCast<long long, long long>(offset, loc);
+}
+template <> inline RewriterVar* RewriterVar::getAttrCast<unsigned long, unsigned long>(int offset, Location loc) {
+    return getAttrCast<unsigned long long, unsigned long long>(offset, loc);
+}
+
 #endif
+
+} // namespace pyston
 
 #endif

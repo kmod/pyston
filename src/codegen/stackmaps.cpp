@@ -139,7 +139,8 @@ void StackmapJITEventListener::NotifyObjectEmitted(const llvm::ObjectImage& Obj)
                 int numlocations = *ptr.u16++;
 
                 if (VERBOSITY() >= 2)
-                    printf("Stackmap record %llu at 0x%x has %d locations:\n", record->id, record->offset, numlocations);
+                    printf("Stackmap record %llu at 0x%x has %d locations:\n", record->id, record->offset,
+                           numlocations);
                 for (int j = 0; j < numlocations; j++) {
                     assert(sizeof(StackMap::Record::Location) == sizeof(*ptr.u64));
                     const StackMap::Record::Location& r = *ptr.record_loc++;

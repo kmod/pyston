@@ -239,7 +239,7 @@ public:
     BoxedString(const std::string& s) __attribute__((visibility("default"))) : Box(str_cls), s(s) {}
 };
 
-//void check_boxedsize() {
+// void check_boxedsize() {
 //	check_size<sizeof(BoxedString), sizeof(PyStringObject)>();
 //}
 
@@ -321,7 +321,8 @@ struct PyLt {
 
 class BoxedDict : public Box {
 public:
-    typedef std::unordered_map<Box*, Box*, PyHasher, PyEq, StlCompatAllocator<std::unordered_map<Box *, Box*>::value_type> > DictMap;
+    typedef std::unordered_map<Box*, Box*, PyHasher, PyEq,
+                               StlCompatAllocator<std::unordered_map<Box*, Box*>::value_type> > DictMap;
 
     DictMap d;
 

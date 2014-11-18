@@ -504,7 +504,7 @@ public:
     void freeze();
 };
 
-//void do_static_asserts() {
+// void do_static_asserts() {
 //	check_size<sizeof(pyston::Box), sizeof(struct _object)>();
 //	check_size<offsetof(pyston::Box, cls), offsetof(struct _object, ob_type)>();
 //	check_size<offsetof(pyston::BoxedClass, cls), offsetof(struct _typeobject, ob_type)>();

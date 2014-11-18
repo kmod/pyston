@@ -23,9 +23,8 @@
 
 namespace pyston {
 
-template <std::size_t ExpectedSize, std::size_t RealSize>
-void check_size() {
-	static_assert(ExpectedSize == RealSize, "");
+template <std::size_t ExpectedSize, std::size_t RealSize> void check_size() {
+    static_assert(ExpectedSize == RealSize, "");
 }
 
 class Timer {

@@ -52,7 +52,7 @@ public:
 
 class PthreadFastMutex {
 private:
-    //pthread_mutex_t mutex = PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP;
+    // pthread_mutex_t mutex = PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP;
     pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 public:

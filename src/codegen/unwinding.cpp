@@ -149,8 +149,8 @@ public:
             }
         }
 
-        // Currently-unused libunwind support:
-         # if 0
+// Currently-unused libunwind support:
+#if 0
         llvm_error_code code;
         bool found_text = false, found_eh_frame = false;
         uint64_t text_addr = -1, text_size = -1;

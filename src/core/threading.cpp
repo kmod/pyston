@@ -139,7 +139,7 @@ static int signals_waiting(0);
 static std::vector<ThreadState> thread_states;
 
 static void pushThreadState(pyston_tid_t tid, ucontext_t* context) {
-	void *rsp = (void *)CTX_RSP(context->uc_mcontext);
+    void* rsp = (void*)CTX_RSP(context->uc_mcontext);
 #if STACK_GROWS_DOWN
     void* stack_start = rsp;
     void* stack_end = current_threads[tid]->stack_bottom;
@@ -246,17 +246,17 @@ static void* _thread_start(void* _arg) {
 
         pthread_t current_thread = pthread_self();
 
-       // pthread_attr_t thread_attrs;
-       // int code = pthread_getattr_np(current_thread, &thread_attrs);
-       // if (code)
-       //     err(1, NULL);
+        // pthread_attr_t thread_attrs;
+        // int code = pthread_getattr_np(current_thread, &thread_attrs);
+        // if (code)
+        //     err(1, NULL);
 
         void* stack_start = pthread_get_stackaddr_np(current_thread);
         size_t stack_size = pthread_get_stacksize_np(current_thread);
-        //code = pthread_attr_getstack(&thread_attrs, &stack_start, &stack_size);
-        //RELEASE_ASSERT(code == 0, "");
+// code = pthread_attr_getstack(&thread_attrs, &stack_start, &stack_size);
+// RELEASE_ASSERT(code == 0, "");
 
-        //pthread_attr_destroy(&thread_attrs);
+// pthread_attr_destroy(&thread_attrs);
 
 #if STACK_GROWS_DOWN
         void* stack_bottom = static_cast<char*>(stack_start) + stack_size;

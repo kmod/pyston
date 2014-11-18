@@ -979,7 +979,8 @@ AST_Module* caching_parse(const char* fn) {
     assert(code == 0);
     code = stat(cache_fn.c_str(), &cache_stat);
     if (code != 0 || cache_stat.st_mtime < source_stat.st_mtime) {
-        //|| (cache_stat.st_mtime == source_stat.st_mtime && cache_stat.st_mtim.tv_nsec < source_stat.st_mtim.tv_nsec)) {
+        //|| (cache_stat.st_mtime == source_stat.st_mtime && cache_stat.st_mtim.tv_nsec < source_stat.st_mtim.tv_nsec))
+        //{
         _reparse(fn, cache_fn);
         code = stat(cache_fn.c_str(), &cache_stat);
         assert(code == 0);

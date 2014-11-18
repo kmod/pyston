@@ -172,7 +172,7 @@ void _printStacktrace() {
 }
 
 // where should this go...
-//extern "C" void abort() {
+// extern "C" void abort() {
 //    static void (*libc_abort)() = (void (*)())dlsym(RTLD_NEXT, "abort");
 //
 //    // In case something calls abort down the line:

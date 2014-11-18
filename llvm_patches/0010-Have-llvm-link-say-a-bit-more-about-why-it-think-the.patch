@@ -1,0 +1,26 @@
+From ebd7776cb1a8942ce6ed72bbaae8a933c5e37a9d Mon Sep 17 00:00:00 2001
+From: Kevin Modzelewski <kevmod@gmail.com>
+Date: Tue, 18 Nov 2014 15:51:04 -0800
+Subject: [PATCH] Have llvm-link say a bit more about why it think the link
+ failed
+
+---
+ tools/llvm-link/llvm-link.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tools/llvm-link/llvm-link.cpp b/tools/llvm-link/llvm-link.cpp
+index 828b9bb..5087191 100644
+--- a/tools/llvm-link/llvm-link.cpp
++++ b/tools/llvm-link/llvm-link.cpp
+@@ -126,7 +126,7 @@ int main(int argc, char **argv) {
+     return 1;
+   }
+ 
+-  if (verifyModule(*Composite)) {
++  if (verifyModule(*Composite, &llvm::errs())) {
+     errs() << argv[0] << ": linked module is broken!\n";
+     return 1;
+   }
+-- 
+1.8.5.2 (Apple Git-48)
+

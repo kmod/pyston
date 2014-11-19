@@ -43,5 +43,9 @@ make -j4
 make install
 ```
 
+```
+brew install homebrew/dupes/gdb
+```
+
 Update xcode?
 

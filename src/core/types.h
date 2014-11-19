@@ -27,8 +27,8 @@
 #include "Python.h"
 
 #include "core/common.h"
-#include "core/util.h"
 #include "core/stats.h"
+#include "core/util.h"
 
 namespace llvm {
 class Function;

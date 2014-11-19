@@ -911,7 +911,7 @@ TEST_EXT_MODULE_NAMES := basic_test descr_test
 .PHONY: ext_pyston
 ext_pyston: $(TEST_EXT_MODULE_NAMES:%=../test/test_extension/%.pyston.so)
 ../test/test_extension/%.pyston.so: ../test/test_extension/%.o $(BUILD_SYSTEM_DEPS)
-	$(CLANG_EXE) -shared $< -o $@ -g
+	$(CLANG_EXE) -dynamiclib -Wl,-flat_namespace -Wl,-undefined,suppress $< -o $@ -g
 ../test/test_extension/%.o: ../test/test_extension/%.c $(wildcard ../include/*.h) $(BUILD_SYSTEM_DEPS)
 	$(CLANG_EXE) -O2 -fPIC -Wimplicit -I../include -c $< -o $@ -g
 

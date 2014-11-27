@@ -37,6 +37,16 @@ class Tracer(object):
 
         return self.trace
 
+_tr = Tracer()
+trace = _tr.trace
+def dump():
+    for p, v in _tr.times.items():
+        if p:
+            print "%s:%d: %.3f" % (p[0], p[1], v)
+        else:
+            print "None: %.3f" % v
+get_times = lambda: _tr.times
+
 if __name__ == "__main__":
     old_sys_argv = sys.argv
     fn = sys.argv[1]

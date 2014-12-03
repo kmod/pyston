@@ -71,7 +71,6 @@ def run(sampler, kind):
         args = sys.argv[2:]
     sys.argv = [sys.argv[0]] + args
 
-    assert sys.path[0] == os.path.abspath(os.path.dirname(__file__))
     sys.path[0] = os.path.abspath(os.path.dirname(fn))
 
     sampler.start()
@@ -84,9 +83,9 @@ def run(sampler, kind):
 
     times = sampler.stop()
 
+    times.sort(key=lambda (l, t): t, reverse=True)
     with open("measure_loc.pkl", "w") as f:
         cPickle.dump(times, f)
-    times.sort(key=lambda (l, t): t, reverse=True)
 
     total = 0.0
     for l, t in times:
@@ -96,7 +95,10 @@ def run(sampler, kind):
     else:
         print "Found %d unique lines with %d samples" % (len(times), total)
 
-    FRACTION = 0.99
+    FRACTIONS = [0.5, 0.75, 0.9, 0.99, 1]
+    frac_counts = []
+    frac_fracs = []
+    frac_idx = 0
     DISPLAY_THRESH = 20
 
     sofar = 0.0
@@ -112,14 +114,21 @@ def run(sampler, kind):
                 print ("%s:%s" % (fn, lineno)).ljust(50), "%.4fs %4.1f%% % 3d %4.1f%%" % (t, t / total * 100, total_lines, sofar / total * 100.0)
             else:
                 print ("%s:%s" % (fn, lineno)).ljust(50), "% 3d %4.1f%% % 3d %4.1f%%" % (t, t / total * 100, total_lines, sofar / total * 100.0)
-        if sofar >= total * FRACTION:
-            break
+        if sofar >= total * FRACTIONS[frac_idx]:
+            if FRACTIONS[frac_idx] == 1:
+                break
 
-    if total_lines > DISPLAY_THRESH:
-        print "(and %d more -- see measure_loc.pkl)" % (total_lines - DISPLAY_THRESH)
+            frac_counts.append(total_lines)
+            frac_fracs.append(sofar)
+            frac_idx += 1
 
-    print "Picked %d lines out of %d to reach %.2f%%" % (total_lines, len(times), sofar / total * 100.0)
+    if len(times) > DISPLAY_THRESH:
+        print "(and %d more -- see measure_loc.pkl)" % (len(times) - DISPLAY_THRESH)
+
+    assert len(frac_counts) == len(FRACTIONS) -1
+    for i in xrange(len(frac_counts)):
+        print "Picked %d lines out of %d to reach %.2f%%" % (frac_counts[i], len(times), frac_fracs[i] / total * 100.0)
 
 if __name__ == "__main__":
-    # run(python_sampler, "count")
-    run(python_trace_counter, "count")
+    run(python_sampler, "count")
+    # run(python_trace_counter, "count")

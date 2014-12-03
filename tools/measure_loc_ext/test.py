@@ -1,5 +1,7 @@
 import os
 import sys
+os.chdir(os.path.dirname(__file__))
+__file__ = os.path.basename(__file__)
 sys.path.append("build/lib.linux-x86_64-2.7")
 # sys.path.append("..")
 

@@ -58,9 +58,6 @@ def trace_count(frame, event, arg):
 def get_times():
     return times.items()
 
-python_sampler = SamplingProfiler(signal_handler, get_times, "real", interval=0.00001)
-python_trace_counter = TracingProfiler(trace_count, get_times)
-
 def run(sampler, kind):
     fn = sys.argv[1]
 
@@ -128,6 +125,9 @@ def run(sampler, kind):
     assert len(frac_counts) == len(FRACTIONS) -1
     for i in xrange(len(frac_counts)):
         print "Picked %d lines out of %d to reach %.2f%%" % (frac_counts[i], len(times), frac_fracs[i] / total * 100.0)
+
+python_sampler = SamplingProfiler(signal_handler, get_times, "real", interval=0.00001)
+python_trace_counter = TracingProfiler(trace_count, get_times)
 
 if __name__ == "__main__":
     run(python_sampler, "count")

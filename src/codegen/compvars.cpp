@@ -1503,48 +1503,44 @@ public:
     CompilerVariable* call(IREmitter& emitter, const OpInfo& info, ConcreteCompilerVariable* var, ArgPassSpec argspec,
                            const std::vector<CompilerVariable*>& args,
                            const std::vector<const std::string*>* keyword_names) override {
+        if (cls == function_cls) {
+            llvm::Value* val = var->getValue();
+            if (llvm::ConstantExpr* ce = llvm::dyn_cast<llvm::ConstantExpr>(val)) {
+                llvm::PointerType* pt = llvm::dyn_cast<llvm::PointerType>(ce->getType());
+                if (ce->isCast() && ce->getOpcode() == llvm::Instruction::IntToPtr && pt) {
+                    llvm::ConstantInt* addr_const = llvm::cast<llvm::ConstantInt>(ce->getOperand(0));
+                    void* addr = (void*)addr_const->getSExtValue();
+
+                    BoxedFunction* rtattr = static_cast<BoxedFunction*>(addr);
+                    assert(rtattr->cls == function_cls);
+                    std::vector<CompilerVariable*> new_args(args);
+                    auto r = tryCall(emitter, rtattr, info, argspec, new_args, keyword_names);
+                    if (r)
+                        return r;
+                }
+            }
+        }
+
         ConcreteCompilerVariable* converted = var->makeConverted(emitter, UNKNOWN);
         CompilerVariable* rtn = converted->call(emitter, info, argspec, args, keyword_names);
         converted->decvref(emitter);
         return rtn;
     }
 
-    ConcreteCompilerVariable* tryCallattrConstant(IREmitter& emitter, const OpInfo& info, ConcreteCompilerVariable* var,
-                                                  const std::string* attr, bool clsonly, ArgPassSpec argspec,
-                                                  const std::vector<CompilerVariable*>& args,
-                                                  const std::vector<const std::string*>* keyword_names,
-                                                  bool* no_attribute = NULL) {
-        if (!canStaticallyResolveGetattrs())
-            return NULL;
-
-        Box* rtattr = cls->getattr(*attr);
-        if (rtattr == NULL) {
-            if (no_attribute) {
-                *no_attribute = true;
-            } else {
-                llvm::CallSite call = emitter.createCall2(info.unw_info, g.funcs.raiseAttributeErrorStr,
-                                                          getStringConstantPtr(std::string(getNameOfClass(cls)) + "\0"),
-                                                          getStringConstantPtr(*attr + '\0'));
-                call.setDoesNotReturn();
-            }
-            return undefVariable();
-        }
-
-        if (rtattr->cls != function_cls)
-            return NULL;
-        BoxedFunction* rtattr_func = static_cast<BoxedFunction*>(rtattr);
-
+    ConcreteCompilerVariable* tryCall(IREmitter& emitter, BoxedFunction* rtattr, const OpInfo& info,
+                                      ArgPassSpec argspec, std::vector<CompilerVariable*>& args,
+                                      const std::vector<const std::string*>* keyword_names) {
         if (argspec.num_keywords || argspec.has_starargs || argspec.has_kwargs)
             return NULL;
 
-        CLFunction* cl = rtattr_func->f;
+        CLFunction* cl = rtattr->f;
         assert(cl);
 
         if (cl->takes_varargs || cl->takes_kwargs)
             return NULL;
 
         RELEASE_ASSERT(cl->num_args == cl->numReceivedArgs(), "");
-        RELEASE_ASSERT(args.size() + 1 >= cl->num_args - cl->num_defaults && args.size() + 1 <= cl->num_args, "%d",
+        RELEASE_ASSERT(args.size() >= cl->num_args - cl->num_defaults && args.size() <= cl->num_args, "%d",
                        info.unw_info.current_stmt->lineno);
 
         CompiledFunction* cf = NULL;
@@ -1556,7 +1552,7 @@ public:
 
             bool fits = true;
             for (int j = 0; j < args.size(); j++) {
-                if (!args[j]->canConvertTo(cf->spec->arg_types[j + 1])) {
+                if (!args[j]->canConvertTo(cf->spec->arg_types[j])) {
                     fits = false;
                     break;
                 }
@@ -1589,21 +1585,17 @@ public:
 
         llvm::Value* linked_function = embedConstantPtr(cf->code, ft->getPointerTo());
 
-        std::vector<CompilerVariable*> new_args;
-        new_args.push_back(var);
-        new_args.insert(new_args.end(), args.begin(), args.end());
-
-        for (int i = args.size() + 1; i < cl->num_args; i++) {
+        for (int i = args.size(); i < cl->num_args; i++) {
             // TODO should _call() be able to take llvm::Value's directly?
-            new_args.push_back(new ConcreteCompilerVariable(
-                UNKNOWN, embedConstantPtr(rtattr_func->defaults->elts[i - cl->num_args + cl->num_defaults],
-                                          g.llvm_value_type_ptr),
+            args.push_back(new ConcreteCompilerVariable(
+                UNKNOWN,
+                embedConstantPtr(rtattr->defaults->elts[i - cl->num_args + cl->num_defaults], g.llvm_value_type_ptr),
                 true));
         }
 
         std::vector<llvm::Value*> other_args;
 
-        ConcreteCompilerVariable* rtn = _call(emitter, info, linked_function, cf->code, other_args, argspec, new_args,
+        ConcreteCompilerVariable* rtn = _call(emitter, info, linked_function, cf->code, other_args, argspec, args,
                                               keyword_names, cf->spec->rtn_type);
         assert(rtn->getType() == cf->spec->rtn_type);
         assert(rtn->getType() != UNDEF);
@@ -1627,6 +1619,38 @@ public:
         assert(cf->spec->rtn_type != BOXED_FLOAT);
 
         return rtn;
+    }
+
+    ConcreteCompilerVariable* tryCallattrConstant(IREmitter& emitter, const OpInfo& info, ConcreteCompilerVariable* var,
+                                                  const std::string* attr, bool clsonly, ArgPassSpec argspec,
+                                                  const std::vector<CompilerVariable*>& args,
+                                                  const std::vector<const std::string*>* keyword_names,
+                                                  bool* no_attribute = NULL) {
+        if (!canStaticallyResolveGetattrs())
+            return NULL;
+
+        Box* rtattr = cls->getattr(*attr);
+        if (rtattr == NULL) {
+            if (no_attribute) {
+                *no_attribute = true;
+            } else {
+                llvm::CallSite call = emitter.createCall2(info.unw_info, g.funcs.raiseAttributeErrorStr,
+                                                          getStringConstantPtr(std::string(getNameOfClass(cls)) + "\0"),
+                                                          getStringConstantPtr(*attr + '\0'));
+                call.setDoesNotReturn();
+            }
+            return undefVariable();
+        }
+
+        if (rtattr->cls != function_cls)
+            return NULL;
+        BoxedFunction* rtattr_func = static_cast<BoxedFunction*>(rtattr);
+
+        std::vector<CompilerVariable*> new_args;
+        new_args.push_back(var);
+        new_args.insert(new_args.end(), args.begin(), args.end());
+
+        return tryCall(emitter, rtattr_func, info, argspec, new_args, keyword_names);
     }
 
     CompilerVariable* callattr(IREmitter& emitter, const OpInfo& info, ConcreteCompilerVariable* var,

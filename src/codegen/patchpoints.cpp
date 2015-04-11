@@ -168,7 +168,7 @@ void processStackmap(CompiledFunction* cf, StackMap* stackmap) {
         PatchpointInfo* pp = reinterpret_cast<PatchpointInfo*>(r->id);
         assert(pp);
 
-        if (VERBOSITY() >= 2) {
+        if (VERBOSITY() >= 3) {
             printf("Processing pp %ld; [%d, %d)\n", reinterpret_cast<int64_t>(pp), r->offset,
                    r->offset + pp->patchpointSize());
         }

@@ -344,7 +344,7 @@ def determine_test_result(fn, opts, code, out, stderr, elapsed):
                     failed.append(fn)
                     return r + ("\033[31mUnexpected statcheck success\033[0m",)
                 else:
-                    raise Exception(("Unexpected statcheck success!", statchecks, stats))
+                    raise Exception(("Unexpected statcheck success!", opts.statchecks, stats))
     else:
         r += ("(ignoring stats)",)
 
@@ -432,7 +432,6 @@ def main(orig_dir):
     global SKIP_FAILING_TESTS
 
     run_memcheck = False
-    start = 1
 
     opts = parser.parse_args()
     run_memcheck = opts.run_memcheck

@@ -1,7 +1,5 @@
 # run_args: -n
-# statcheck: noninit_count("slowpath_runtimecall") <= 5
-# expected: statfail
-# - TODO
+# statcheck: noninit_count("slowpath_runtimecall") - noninit_count("slowpath_hash") <= 5
 
 # A test to make sure that we fast-path literal creation.
 

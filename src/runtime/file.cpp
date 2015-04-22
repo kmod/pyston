@@ -480,7 +480,15 @@ static PyObject* file_write(BoxedFile* f, Box* arg) noexcept {
     if (!f->writable)
         return err_mode("writing");
     if (f->f_binary) {
-        if (PyObject_GetBuffer(arg, &pbuf, 0))
+        // In CPython, this branch calls PyArg_ParseTuple for all types, but we never created
+        // the "args" tuple so we have to do some of the work that ParseTuple does.
+        // Mostly it's easy since we've already unpacked the args, but there is some unicode-specific
+        // code in it that is better not to duplicate.
+        // So, if it's unicode, just make the tuple for now and send it through PyArg_ParseTuple.
+        if (PyUnicode_Check(arg)) {
+            if (!PyArg_ParseTuple(BoxedTuple::create({ arg }), "s*", &pbuf))
+                return NULL;
+        } else if (PyObject_GetBuffer(arg, &pbuf, 0))
             return NULL;
 
         s = (const char*)pbuf.buf;
@@ -535,6 +543,124 @@ static PyObject* file_write(BoxedFile* f, Box* arg) noexcept {
     }
     Py_INCREF(Py_None);
     return Py_None;
+}
+
+static PyObject* file_writelines(BoxedFile* f, PyObject* seq) noexcept {
+#define CHUNKSIZE 1000
+    PyObject* list, *line;
+    PyObject* it; /* iter(seq) */
+    PyObject* result;
+    int index, islist;
+    Py_ssize_t i, j, nwritten, len;
+
+    assert(seq != NULL);
+    if (f->f_fp == NULL)
+        return err_closed();
+    if (!f->writable)
+        return err_mode("writing");
+
+    result = NULL;
+    list = NULL;
+    islist = PyList_Check(seq);
+    if (islist)
+        it = NULL;
+    else {
+        it = PyObject_GetIter(seq);
+        if (it == NULL) {
+            PyErr_SetString(PyExc_TypeError, "writelines() requires an iterable argument");
+            return NULL;
+        }
+        /* From here on, fail by going to error, to reclaim "it". */
+        list = PyList_New(CHUNKSIZE);
+        if (list == NULL)
+            goto error;
+    }
+
+    /* Strategy: slurp CHUNKSIZE lines into a private list,
+       checking that they are all strings, then write that list
+       without holding the interpreter lock, then come back for more. */
+    for (index = 0;; index += CHUNKSIZE) {
+        if (islist) {
+            Py_XDECREF(list);
+            list = PyList_GetSlice(seq, index, index + CHUNKSIZE);
+            if (list == NULL)
+                goto error;
+            j = PyList_GET_SIZE(list);
+        } else {
+            for (j = 0; j < CHUNKSIZE; j++) {
+                line = PyIter_Next(it);
+                if (line == NULL) {
+                    if (PyErr_Occurred())
+                        goto error;
+                    break;
+                }
+                PyList_SetItem(list, j, line);
+            }
+            /* The iterator might have closed the file on us. */
+            if (f->f_fp == NULL) {
+                err_closed();
+                goto error;
+            }
+        }
+        if (j == 0)
+            break;
+
+        /* Check that all entries are indeed strings. If not,
+           apply the same rules as for file.write() and
+           convert the results to strings. This is slow, but
+           seems to be the only way since all conversion APIs
+           could potentially execute Python code. */
+        for (i = 0; i < j; i++) {
+            PyObject* v = PyList_GET_ITEM(list, i);
+            if (!PyString_Check(v)) {
+                const char* buffer;
+                int res;
+                if (f->f_binary) {
+                    res = PyObject_AsReadBuffer(v, (const void**)&buffer, &len);
+                } else {
+                    res = PyObject_AsCharBuffer(v, &buffer, &len);
+                }
+                if (res) {
+                    PyErr_SetString(PyExc_TypeError, "writelines() argument must be a sequence of strings");
+                    goto error;
+                }
+                line = PyString_FromStringAndSize(buffer, len);
+                if (line == NULL)
+                    goto error;
+                Py_DECREF(v);
+                PyList_SET_ITEM(list, i, line);
+            }
+        }
+
+        /* Since we are releasing the global lock, the
+           following code may *not* execute Python code. */
+        f->f_softspace = 0;
+        FILE_BEGIN_ALLOW_THREADS(f)
+        errno = 0;
+        for (i = 0; i < j; i++) {
+            line = PyList_GET_ITEM(list, i);
+            len = PyString_GET_SIZE(line);
+            nwritten = fwrite(PyString_AS_STRING(line), 1, len, f->f_fp);
+            if (nwritten != len) {
+                FILE_ABORT_ALLOW_THREADS(f)
+                PyErr_SetFromErrno(PyExc_IOError);
+                clearerr(f->f_fp);
+                goto error;
+            }
+        }
+        FILE_END_ALLOW_THREADS(f)
+
+        if (j < CHUNKSIZE)
+            break;
+    }
+
+    Py_INCREF(Py_None);
+    result = Py_None;
+error:
+    Py_XDECREF(list);
+    Py_XDECREF(it);
+    return result;
+#undef CHUNKSIZE
 }
 
 Box* fileWrite(BoxedFile* self, Box* val) {
@@ -805,7 +931,9 @@ Box* fileExit(BoxedFile* self, Box* exc_type, Box* exc_val, Box** args) {
 }
 
 // This differs very significantly from CPython:
-Box* fileNew(BoxedClass* cls, Box* s, Box* m) {
+Box* fileNew(BoxedClass* cls, Box* s, Box* m, Box** args) {
+    BoxedInt* buffering = (BoxedInt*)args[0];
+
     assert(cls == file_cls);
 
     if (s->cls == unicode_cls)
@@ -823,17 +951,29 @@ Box* fileNew(BoxedClass* cls, Box* s, Box* m) {
         raiseExcHelper(TypeError, "");
     }
 
+    if (!PyInt_Check(buffering))
+        raiseExcHelper(TypeError, "an integer is required");
+
     auto fn = static_cast<BoxedString*>(s);
     auto mode = static_cast<BoxedString*>(m);
 
-    FILE* f = fopen(fn->data(), mode->data());
+    // all characters in python mode specifiers are valid in fopen calls except 'U'.  we strip it out
+    // of the string we pass to fopen, but pass it along to the BoxedFile ctor.
+    auto file_mode = std::unique_ptr<char[]>(new char[mode->size() + 1]);
+    memmove(&file_mode[0], mode->data(), mode->size() + 1);
+    _PyFile_SanitizeMode(&file_mode[0]);
+    checkAndThrowCAPIException();
+
+    FILE* f = fopen(fn->data(), &file_mode[0]);
     if (!f) {
         PyErr_SetFromErrnoWithFilename(IOError, fn->data());
         throwCAPIException();
         abort(); // unreachable;
     }
 
-    return new BoxedFile(f, fn->s, PyString_AsString(m));
+    auto file = new BoxedFile(f, fn->s, PyString_AsString(m));
+    PyFile_SetBufSize(file, buffering->n);
+    return file;
 }
 
 static PyObject* file_readlines(BoxedFile* f, PyObject* args) noexcept {
@@ -1104,13 +1244,71 @@ extern "C" int PyFile_WriteString(const char* s, PyObject* f) noexcept {
 
 extern "C" void PyFile_SetBufSize(PyObject* f, int bufsize) noexcept {
     assert(f->cls == file_cls);
+    BoxedFile* file = (BoxedFile*)f;
     if (bufsize >= 0) {
-        if (bufsize == 0) {
-            setvbuf(static_cast<BoxedFile*>(f)->f_fp, NULL, _IONBF, 0);
-        } else {
-            Py_FatalError("unimplemented");
+        int type;
+        switch (bufsize) {
+            case 0:
+                type = _IONBF;
+                break;
+#ifdef HAVE_SETVBUF
+            case 1:
+                type = _IOLBF;
+                bufsize = BUFSIZ;
+                break;
+#endif
+            default:
+                type = _IOFBF;
+#ifndef HAVE_SETVBUF
+                bufsize = BUFSIZ;
+#endif
+                break;
         }
+        fflush(file->f_fp);
+        if (type == _IONBF) {
+            PyMem_Free(file->f_setbuf);
+            file->f_setbuf = NULL;
+        } else {
+            file->f_setbuf = (char*)PyMem_Realloc(file->f_setbuf, bufsize);
+        }
+#ifdef HAVE_SETVBUF
+        setvbuf(file->f_fp, file->f_setbuf, type, bufsize);
+#else  /* !HAVE_SETVBUF */
+        setbuf(file->f_fp, file->f_setbuf);
+#endif /* !HAVE_SETVBUF */
     }
+}
+
+/* Set the encoding used to output Unicode strings.
+   Return 1 on success, 0 on failure. */
+
+extern "C" int PyFile_SetEncoding(PyObject* f, const char* enc) noexcept {
+    return PyFile_SetEncodingAndErrors(f, enc, NULL);
+}
+
+extern "C" int PyFile_SetEncodingAndErrors(PyObject* f, const char* enc, char* errors) noexcept {
+    BoxedFile* file = static_cast<BoxedFile*>(f);
+    PyObject* str, *oerrors;
+
+    assert(PyFile_Check(f));
+    str = PyString_FromString(enc);
+    if (!str)
+        return 0;
+    if (errors) {
+        oerrors = PyString_FromString(errors);
+        if (!oerrors) {
+            Py_DECREF(str);
+            return 0;
+        }
+    } else {
+        oerrors = Py_None;
+        Py_INCREF(Py_None);
+    }
+    Py_DECREF(file->f_encoding);
+    file->f_encoding = str;
+    Py_DECREF(file->f_errors);
+    file->f_errors = oerrors;
+    return 1;
 }
 
 extern "C" int _PyFile_SanitizeMode(char* mode) noexcept {
@@ -1397,6 +1595,7 @@ PyDoc_STRVAR(isatty_doc, "isatty() -> true or false.  True if the file is connec
 PyMethodDef file_methods[] = {
     { "seek", (PyCFunction)file_seek, METH_VARARGS, seek_doc },
     { "readlines", (PyCFunction)file_readlines, METH_VARARGS, readlines_doc },
+    { "writelines", (PyCFunction)file_writelines, METH_O, NULL },
     { "isatty", (PyCFunction)file_isatty, METH_NOARGS, isatty_doc },
 };
 
@@ -1419,6 +1618,7 @@ void BoxedFile::gcHandler(GCVisitor* v, Box* b) {
     v->visit(f->f_mode);
     v->visit(f->f_encoding);
     v->visit(f->f_errors);
+    v->visit(f->f_setbuf);
 }
 
 void setupFile() {
@@ -1448,8 +1648,8 @@ void setupFile() {
     file_cls->giveAttr("softspace",
                        new BoxedMemberDescriptor(BoxedMemberDescriptor::INT, offsetof(BoxedFile, f_softspace), false));
 
-    file_cls->giveAttr("__new__", new BoxedFunction(boxRTFunction((void*)fileNew, UNKNOWN, 3, 1, false, false),
-                                                    { boxStrConstant("r") }));
+    file_cls->giveAttr("__new__", new BoxedFunction(boxRTFunction((void*)fileNew, UNKNOWN, 4, 2, false, false),
+                                                    { boxStrConstant("r"), boxInt(-1) }));
 
     for (auto& md : file_methods) {
         file_cls->giveAttr(md.ml_name, new BoxedMethodDescriptor(&md, file_cls));

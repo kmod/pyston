@@ -100,6 +100,16 @@ static llvm::Value* getExcinfoGep(llvm::IRBuilder<true>& builder, llvm::Value* v
     return builder.CreateConstInBoundsGEP2_32(builder.CreateConstInBoundsGEP2_32(v, 0, 0), 0, 0);
 }
 
+static llvm::Value* getFrameObjGep(llvm::IRBuilder<true>& builder, llvm::Value* v) {
+    static_assert(offsetof(FrameInfo, exc) == 0, "");
+    static_assert(sizeof(ExcInfo) == 24, "");
+    static_assert(sizeof(Box*) == 8, "");
+    static_assert(offsetof(FrameInfo, frame_obj) == 32, "");
+    return builder.CreateConstInBoundsGEP2_32(v, 0, 2);
+    // TODO: this could be made more resilient by doing something like
+    // gep->accumulateConstantOffset(g.tm->getDataLayout(), ap_offset)
+}
+
 llvm::Value* IRGenState::getFrameInfoVar() {
     /*
         There is a matrix of possibilities here.
@@ -149,11 +159,11 @@ llvm::Value* IRGenState::getFrameInfoVar() {
             // The "normal" case
 
             // frame_info.exc.type = NULL
-            builder.CreateStore(embedConstantPtr(NULL, g.llvm_value_type_ptr), getExcinfoGep(builder, al));
+            builder.CreateStore(getNullPtr(g.llvm_value_type_ptr), getExcinfoGep(builder, al));
 
             // frame_info.boxedLocals = NULL
             llvm::Value* boxed_locals_gep = getBoxedLocalsGep(builder, al);
-            builder.CreateStore(embedConstantPtr(NULL, g.llvm_value_type_ptr), boxed_locals_gep);
+            builder.CreateStore(getNullPtr(g.llvm_value_type_ptr), boxed_locals_gep);
 
             if (getScopeInfo()->usesNameLookup()) {
                 // frame_info.boxedLocals = createDict()
@@ -161,6 +171,11 @@ llvm::Value* IRGenState::getFrameInfoVar() {
                 this->boxed_locals = builder.CreateCall(g.funcs.createDict);
                 builder.CreateStore(this->boxed_locals, boxed_locals_gep);
             }
+
+            // frame_info.frame_obj = NULL
+            static llvm::Type* llvm_frame_obj_type_ptr
+                = llvm::cast<llvm::StructType>(g.llvm_frame_info_type)->getElementType(2);
+            builder.CreateStore(getNullPtr(llvm_frame_obj_type_ptr), getFrameObjGep(builder, al));
 
             this->frame_info = al;
         }
@@ -214,14 +229,33 @@ private:
         if (pp == NULL)
             assert(ic_stackmap_args.size() == 0);
 
-        PatchpointInfo* info = PatchpointInfo::create(currentFunction(), pp, ic_stackmap_args.size());
-        int64_t pp_id = reinterpret_cast<int64_t>(info);
+        // Retrieve address of called function, currently handles the IR
+        // embedConstantPtr() and embedRelocatablePtr() create.
+        void* func_addr = nullptr;
+        if (llvm::isa<llvm::ConstantExpr>(func)) {
+            llvm::ConstantExpr* cast = llvm::cast<llvm::ConstantExpr>(func);
+            auto opcode = cast->getOpcode();
+            if (opcode == llvm::Instruction::IntToPtr) {
+                auto operand = cast->getOperand(0);
+                if (llvm::isa<llvm::ConstantInt>(operand))
+                    func_addr = (void*)llvm::cast<llvm::ConstantInt>(operand)->getZExtValue();
+            }
+        }
+        assert(func_addr);
+
+        PatchpointInfo* info = PatchpointInfo::create(currentFunction(), pp, ic_stackmap_args.size(), func_addr);
+
+        int64_t pp_id = info->getId();
         int pp_size = pp ? pp->totalSize() : CALL_ONLY_SIZE;
 
         std::vector<llvm::Value*> pp_args;
         pp_args.push_back(getConstantInt(pp_id, g.i64)); // pp_id: will fill this in later
         pp_args.push_back(getConstantInt(pp_size, g.i32));
-        pp_args.push_back(func);
+        if (ENABLE_JIT_OBJECT_CACHE)
+            // add fixed dummy dest pointer, we will replace it with the correct address during stackmap processing
+            pp_args.push_back(embedConstantPtr((void*)-1L, g.i8_ptr));
+        else
+            pp_args.push_back(func);
         pp_args.push_back(getConstantInt(args.size(), g.i32));
 
         pp_args.insert(pp_args.end(), args.begin(), args.end());
@@ -437,7 +471,7 @@ private:
         curblock = deopt_bb;
         emitter.getBuilder()->SetInsertPoint(curblock);
         llvm::Value* v = emitter.createCall2(UnwindInfo(current_statement, NULL), g.funcs.deopt,
-                                             embedConstantPtr(node, g.i8->getPointerTo()), node_value);
+                                             embedRelocatablePtr(node, g.i8->getPointerTo()), node_value);
         emitter.getBuilder()->CreateRet(v);
 
         curblock = success_bb;
@@ -494,13 +528,17 @@ private:
                 assert(personality_func);
                 llvm::LandingPadInst* landing_pad = emitter.getBuilder()->CreateLandingPad(
                     llvm::StructType::create(std::vector<llvm::Type*>{ g.i8_ptr, g.i64 }), personality_func, 1);
-                landing_pad->addClause(embedConstantPtr(NULL, g.i8_ptr));
+                landing_pad->addClause(getNullPtr(g.i8_ptr));
 
                 llvm::Value* cxaexc_pointer = emitter.getBuilder()->CreateExtractValue(landing_pad, { 0 });
 
                 if (irstate->getEffortLevel() != EffortLevel::INTERPRETED) {
-                    llvm::Value* excinfo_pointer
-                        = emitter.getBuilder()->CreateCall(g.funcs.__cxa_begin_catch, cxaexc_pointer);
+                    llvm::Function* std_module_catch = g.stdlib_module->getFunction("__cxa_begin_catch");
+                    auto begin_catch_func = g.cur_module->getOrInsertFunction(std_module_catch->getName(),
+                                                                              std_module_catch->getFunctionType());
+                    assert(begin_catch_func);
+
+                    llvm::Value* excinfo_pointer = emitter.getBuilder()->CreateCall(begin_catch_func, cxaexc_pointer);
                     llvm::Value* excinfo_pointer_casted
                         = emitter.getBuilder()->CreateBitCast(excinfo_pointer, g.llvm_excinfo_type->getPointerTo());
 
@@ -552,7 +590,7 @@ private:
                 assert(name.size());
 
                 llvm::Value* r = emitter.createCall2(unw_info, g.funcs.importFrom, converted_module->getValue(),
-                                                     embedConstantPtr(&name, g.llvm_str_type_ptr));
+                                                     embedRelocatablePtr(&name, g.llvm_str_type_ptr));
 
                 CompilerVariable* v = new ConcreteCompilerVariable(UNKNOWN, r, true);
 
@@ -570,9 +608,8 @@ private:
                 ConcreteCompilerVariable* converted_module = module->makeConverted(emitter, module->getBoxType());
                 module->decvref(emitter);
 
-                llvm::Value* r = emitter.createCall2(
-                    unw_info, g.funcs.importStar, converted_module->getValue(),
-                    embedConstantPtr(irstate->getSourceInfo()->parent_module, g.llvm_module_type_ptr));
+                llvm::Value* r = emitter.createCall2(unw_info, g.funcs.importStar, converted_module->getValue(),
+                                                     embedParentModulePtr());
                 CompilerVariable* v = new ConcreteCompilerVariable(UNKNOWN, r, true);
 
                 converted_module->decvref(emitter);
@@ -597,7 +634,7 @@ private:
 
                 llvm::Value* imported = emitter.createCall3(unw_info, g.funcs.import, getConstantInt(level, g.i32),
                                                             converted_froms->getValue(),
-                                                            embedConstantPtr(&module_name, g.llvm_str_type_ptr));
+                                                            embedRelocatablePtr(&module_name, g.llvm_str_type_ptr));
                 ConcreteCompilerVariable* v = new ConcreteCompilerVariable(UNKNOWN, imported, true);
 
                 converted_froms->decvref(emitter);
@@ -656,7 +693,7 @@ private:
                 llvm::Value* exc_info = builder->CreateConstInBoundsGEP2_32(frame_info, 0, 0);
                 assert(exc_info->getType() == g.llvm_excinfo_type->getPointerTo());
 
-                llvm::Constant* v = embedConstantPtr(0, g.llvm_value_type_ptr);
+                llvm::Constant* v = getNullPtr(g.llvm_value_type_ptr);
                 builder->CreateStore(v, builder->CreateConstInBoundsGEP2_32(exc_info, 0, 0));
                 builder->CreateStore(v, builder->CreateConstInBoundsGEP2_32(exc_info, 0, 1));
                 builder->CreateStore(v, builder->CreateConstInBoundsGEP2_32(exc_info, 0, 2));
@@ -873,9 +910,13 @@ private:
     }
 
     ConcreteCompilerVariable* getNone() {
-        ConcreteCompilerVariable* v = new ConcreteCompilerVariable(
-            typeFromClass(none_cls), embedConstantPtr(None, g.llvm_value_type_ptr), false);
-        return v;
+        llvm::Constant* none = embedRelocatablePtr(None, g.llvm_value_type_ptr, "cNone");
+        return new ConcreteCompilerVariable(typeFromClass(none_cls), none, false);
+    }
+
+    llvm::Constant* embedParentModulePtr() {
+        BoxedModule* parent_module = irstate->getSourceInfo()->parent_module;
+        return embedRelocatablePtr(parent_module, g.llvm_module_type_ptr, "cParentModule");
     }
 
     ConcreteCompilerVariable* _getGlobal(AST_Name* node, UnwindInfo unw_info) {
@@ -887,17 +928,15 @@ private:
             ICSetupInfo* pp = createGetGlobalIC(getOpInfoForNode(node, unw_info).getTypeRecorder());
 
             std::vector<llvm::Value*> llvm_args;
-            llvm_args.push_back(embedConstantPtr(irstate->getSourceInfo()->parent_module, g.llvm_module_type_ptr));
-            llvm_args.push_back(embedConstantPtr(&node->id.str(), g.llvm_str_type_ptr));
+            llvm_args.push_back(embedParentModulePtr());
+            llvm_args.push_back(embedRelocatablePtr(&node->id.str(), g.llvm_str_type_ptr));
 
             llvm::Value* uncasted = emitter.createIC(pp, (void*)pyston::getGlobal, llvm_args, unw_info);
             llvm::Value* r = emitter.getBuilder()->CreateIntToPtr(uncasted, g.llvm_value_type_ptr);
             return new ConcreteCompilerVariable(UNKNOWN, r, true);
         } else {
-            llvm::Value* r
-                = emitter.createCall2(unw_info, g.funcs.getGlobal,
-                                      embedConstantPtr(irstate->getSourceInfo()->parent_module, g.llvm_module_type_ptr),
-                                      embedConstantPtr(&node->id.str(), g.llvm_str_type_ptr));
+            llvm::Value* r = emitter.createCall2(unw_info, g.funcs.getGlobal, embedParentModulePtr(),
+                                                 embedRelocatablePtr(&node->id.str(), g.llvm_str_type_ptr));
             return new ConcreteCompilerVariable(UNKNOWN, r, true);
         }
     }
@@ -944,7 +983,7 @@ private:
                 = llvm::BasicBlock::Create(g.context, "deref_undefined", irstate->getLLVMFunction());
 
             llvm::Value* check_val
-                = emitter.getBuilder()->CreateICmpEQ(lookupResult, embedConstantPtr(NULL, g.llvm_value_type_ptr));
+                = emitter.getBuilder()->CreateICmpEQ(lookupResult, getNullPtr(g.llvm_value_type_ptr));
             llvm::BranchInst* non_null_check = emitter.getBuilder()->CreateCondBr(check_val, fail_bb, success_bb);
 
             // Case that it is undefined: call the assert fail function.
@@ -964,7 +1003,7 @@ private:
         } else if (vst == ScopeInfo::VarScopeType::NAME) {
             llvm::Value* boxedLocals = irstate->getBoxedLocalsVar();
             llvm::Value* attr = getStringConstantPtr(node->id.str() + '\0');
-            llvm::Value* module = embedConstantPtr(irstate->getSourceInfo()->parent_module, g.llvm_module_type_ptr);
+            llvm::Value* module = embedParentModulePtr();
             llvm::Value* r = emitter.createCall3(unw_info, g.funcs.boxedLocalsGet, boxedLocals, attr, module);
             return new ConcreteCompilerVariable(UNKNOWN, r, true);
         } else {
@@ -975,7 +1014,7 @@ private:
                 llvm::CallSite call = emitter.createCall(
                     unw_info, g.funcs.assertNameDefined,
                     { getConstantInt(0, g.i1), getStringConstantPtr(node->id.str() + '\0'),
-                      embedConstantPtr(UnboundLocalError, g.llvm_class_type_ptr), getConstantInt(true, g.i1) });
+                      embedRelocatablePtr(UnboundLocalError, g.llvm_class_type_ptr), getConstantInt(true, g.i1) });
                 call.setDoesNotReturn();
                 return undefVariable();
             }
@@ -987,7 +1026,7 @@ private:
             if (is_defined_var) {
                 emitter.createCall(unw_info, g.funcs.assertNameDefined,
                                    { i1FromBool(emitter, is_defined_var), getStringConstantPtr(node->id.str() + '\0'),
-                                     embedConstantPtr(UnboundLocalError, g.llvm_class_type_ptr),
+                                     embedRelocatablePtr(UnboundLocalError, g.llvm_class_type_ptr),
                                      getConstantInt(true, g.i1) });
 
                 // At this point we know the name must be defined (otherwise the assert would have fired):
@@ -1077,9 +1116,23 @@ private:
         return new ConcreteCompilerVariable(SLICE, rtn, true);
     }
 
+    CompilerVariable* evalExtSlice(AST_ExtSlice* node, UnwindInfo unw_info) {
+        std::vector<CompilerVariable*> elts;
+        for (auto* e : node->dims) {
+            elts.push_back(evalExpr(e, unw_info));
+        }
+
+        // TODO makeTuple should probably just transfer the vref, but I want to keep things consistent
+        CompilerVariable* rtn = makeTuple(elts);
+        for (auto* e : elts) {
+            e->decvref(emitter);
+        }
+        return rtn;
+    }
+
     CompilerVariable* evalStr(AST_Str* node, UnwindInfo unw_info) {
         if (node->str_type == AST_Str::STR) {
-            llvm::Value* rtn = embedConstantPtr(
+            llvm::Value* rtn = embedRelocatablePtr(
                 irstate->getSourceInfo()->parent_module->getStringConstant(node->str_data), g.llvm_value_type_ptr);
 
             return new ConcreteCompilerVariable(STR, rtn, true);
@@ -1210,7 +1263,7 @@ private:
         attr_dict->decvref(emitter);
 
         llvm::Value* classobj = emitter.createCall3(unw_info, g.funcs.createUserClass,
-                                                    embedConstantPtr(&node->name.str(), g.llvm_str_type_ptr),
+                                                    embedRelocatablePtr(&node->name.str(), g.llvm_str_type_ptr),
                                                     bases_tuple->getValue(), converted_attr_dict->getValue());
 
         // Note: createuserClass is free to manufacture non-class objects
@@ -1334,6 +1387,9 @@ private:
                 break;
             case AST_TYPE::Dict:
                 rtn = evalDict(ast_cast<AST_Dict>(node), unw_info);
+                break;
+            case AST_TYPE::ExtSlice:
+                rtn = evalExtSlice(ast_cast<AST_ExtSlice>(node), unw_info);
                 break;
             case AST_TYPE::Index:
                 rtn = evalIndex(ast_cast<AST_Index>(node), unw_info);
@@ -1470,8 +1526,8 @@ private:
 
         if (vst == ScopeInfo::VarScopeType::GLOBAL) {
             // TODO do something special here so that it knows to only emit a monomorphic inline cache?
-            ConcreteCompilerVariable* module = new ConcreteCompilerVariable(
-                MODULE, embedConstantPtr(irstate->getSourceInfo()->parent_module, g.llvm_value_type_ptr), false);
+            auto parent_module = llvm::ConstantExpr::getPointerCast(embedParentModulePtr(), g.llvm_value_type_ptr);
+            ConcreteCompilerVariable* module = new ConcreteCompilerVariable(MODULE, parent_module, false);
             module->setattr(emitter, getEmptyOpInfo(unw_info), &name.str(), val);
             module->decvref(emitter);
         } else if (vst == ScopeInfo::VarScopeType::NAME) {
@@ -1595,7 +1651,7 @@ private:
         assert(num->n_int == 0);
 
         std::vector<llvm::Value*> llvm_args;
-        llvm_args.push_back(embedConstantPtr(irstate->getSourceInfo()->parent_module, g.llvm_module_type_ptr));
+        llvm_args.push_back(embedParentModulePtr());
 
         ConcreteCompilerVariable* converted_msg = NULL;
         if (node->msg) {
@@ -1604,7 +1660,7 @@ private:
             msg->decvref(emitter);
             llvm_args.push_back(converted_msg->getValue());
         } else {
-            llvm_args.push_back(embedConstantPtr(NULL, g.llvm_value_type_ptr));
+            llvm_args.push_back(getNullPtr(g.llvm_value_type_ptr));
         }
         llvm::CallSite call = emitter.createCall(unw_info, g.funcs.assertFail, llvm_args);
         call.setDoesNotReturn();
@@ -1675,9 +1731,8 @@ private:
         ScopeInfo::VarScopeType vst = scope_info->getScopeTypeOfName(target->id);
         if (vst == ScopeInfo::VarScopeType::GLOBAL) {
             // Can't use delattr since the errors are different:
-            emitter.createCall2(unw_info, g.funcs.delGlobal,
-                                embedConstantPtr(irstate->getSourceInfo()->parent_module, g.llvm_module_type_ptr),
-                                embedConstantPtr(&target->id.str(), g.llvm_str_type_ptr));
+            emitter.createCall2(unw_info, g.funcs.delGlobal, embedParentModulePtr(),
+                                embedRelocatablePtr(&target->id.str(), g.llvm_str_type_ptr));
             return;
         }
 
@@ -1693,10 +1748,11 @@ private:
         assert(vst == ScopeInfo::VarScopeType::FAST);
 
         if (symbol_table.count(target->id) == 0) {
-            llvm::CallSite call = emitter.createCall(
-                unw_info, g.funcs.assertNameDefined,
-                { getConstantInt(0, g.i1), getStringConstantPtr(target->id.str() + '\0'),
-                  embedConstantPtr(NameError, g.llvm_class_type_ptr), getConstantInt(true /*local_error_msg*/, g.i1) });
+            llvm::CallSite call
+                = emitter.createCall(unw_info, g.funcs.assertNameDefined,
+                                     { getConstantInt(0, g.i1), getStringConstantPtr(target->id.str() + '\0'),
+                                       embedRelocatablePtr(NameError, g.llvm_class_type_ptr),
+                                       getConstantInt(true /*local_error_msg*/, g.i1) });
             call.setDoesNotReturn();
             return;
         }
@@ -1707,7 +1763,7 @@ private:
         if (is_defined_var) {
             emitter.createCall(unw_info, g.funcs.assertNameDefined,
                                { i1FromBool(emitter, is_defined_var), getStringConstantPtr(target->id.str() + '\0'),
-                                 embedConstantPtr(NameError, g.llvm_class_type_ptr),
+                                 embedRelocatablePtr(NameError, g.llvm_class_type_ptr),
                                  getConstantInt(true /*local_error_msg*/, g.i1) });
             _popFake(defined_name);
         }
@@ -1726,7 +1782,7 @@ private:
             vglobals = globals->makeConverted(emitter, globals->getBoxType())->getValue();
             globals->decvref(emitter);
         } else {
-            vglobals = embedConstantPtr(NULL, g.llvm_value_type_ptr);
+            vglobals = getNullPtr(g.llvm_value_type_ptr);
         }
 
         llvm::Value* vlocals;
@@ -1735,7 +1791,7 @@ private:
             vlocals = locals->makeConverted(emitter, locals->getBoxType())->getValue();
             locals->decvref(emitter);
         } else {
-            vlocals = embedConstantPtr(NULL, g.llvm_value_type_ptr);
+            vlocals = getNullPtr(g.llvm_value_type_ptr);
         }
 
         emitter.createCall3(unw_info, g.funcs.exec, vbody, vglobals, vlocals);
@@ -1788,7 +1844,7 @@ private:
             // end code for handling of softspace
 
 
-            llvm::Value* v = emitter.createCall(unw_info, g.funcs.str, converted->getValue());
+            llvm::Value* v = emitter.createCall(unw_info, g.funcs.strOrUnicode, converted->getValue());
             v = emitter.getBuilder()->CreateBitCast(v, g.llvm_value_type_ptr);
             auto s = new ConcreteCompilerVariable(STR, v, true);
             r = dest->callattr(emitter, getOpInfoForNode(node, unw_info), &write_str, flags, ArgPassSpec(1), { s },
@@ -1823,7 +1879,7 @@ private:
                 return;
             }
 
-            val = new ConcreteCompilerVariable(NONE, embedConstantPtr(None, g.llvm_value_type_ptr), false);
+            val = getNone();
         } else {
             val = evalExpr(node->value, unw_info);
         }
@@ -1918,7 +1974,7 @@ private:
         OSREntryDescriptor* entry = OSREntryDescriptor::create(irstate->getCurFunction(), osr_key);
         OSRExit* exit = new OSRExit(irstate->getCurFunction(), entry);
         llvm::Value* partial_func = emitter.getBuilder()->CreateCall(g.funcs.compilePartialFunc,
-                                                                     embedConstantPtr(exit, g.i8->getPointerTo()));
+                                                                     embedRelocatablePtr(exit, g.i8->getPointerTo()));
 
         std::vector<llvm::Value*> llvm_args;
         std::vector<llvm::Type*> llvm_arg_types;
@@ -2093,7 +2149,7 @@ private:
                 v->decvref(emitter);
                 args.push_back(converted->getValue());
             } else {
-                args.push_back(embedConstantPtr(None, g.llvm_value_type_ptr));
+                args.push_back(embedRelocatablePtr(None, g.llvm_value_type_ptr, "cNone"));
             }
         }
 
@@ -2205,60 +2261,51 @@ private:
         SourceInfo* source = irstate->getSourceInfo();
         ScopeInfo* scope_info = irstate->getScopeInfo();
 
-        // Additional names to remove; remove them after iteration is done to not mess up the iterators
-        std::vector<InternedString> also_remove;
-        for (auto it = symbol_table.begin(); it != symbol_table.end();) {
-            assert(it->first.str() != FRAME_INFO_PTR_NAME);
-            if (allowableFakeEndingSymbol(it->first)) {
-                ++it;
+        // Sort the names here to make the process deterministic:
+        std::map<InternedString, CompilerVariable*> sorted_symbol_table(symbol_table.begin(), symbol_table.end());
+        for (const auto& p : sorted_symbol_table) {
+            assert(p.first.str() != FRAME_INFO_PTR_NAME);
+            if (allowableFakeEndingSymbol(p.first))
                 continue;
-            }
 
-            // ASSERT(it->first[0] != '!' || isIsDefinedName(it->first), "left a fake variable in the real
-            // symbol table? '%s'", it->first.c_str());
+            // ASSERT(p.first[0] != '!' || isIsDefinedName(p.first), "left a fake variable in the real
+            // symbol table? '%s'", p.first.c_str());
 
-            if (!source->liveness->isLiveAtEnd(it->first, myblock)) {
-                // printf("%s dead at end of %d; grabbed = %d, %d vrefs\n", it->first.c_str(), myblock->idx,
-                //        it->second->isGrabbed(), it->second->getVrefs());
-                also_remove.push_back(getIsDefinedName(it->first));
+            if (!source->liveness->isLiveAtEnd(p.first, myblock)) {
+                // printf("%s dead at end of %d; grabbed = %d, %d vrefs\n", p.first.c_str(), myblock->idx,
+                //        p.second->isGrabbed(), p.second->getVrefs());
 
-                it->second->decvref(emitter);
-                it = symbol_table.erase(it);
-            } else if (source->phis->isRequiredAfter(it->first, myblock)) {
-                assert(scope_info->getScopeTypeOfName(it->first) != ScopeInfo::VarScopeType::GLOBAL);
-                ConcreteCompilerType* phi_type = types->getTypeAtBlockEnd(it->first, myblock);
-                // printf("Converting %s from %s to %s\n", it->first.c_str(),
-                // it->second->getType()->debugName().c_str(), phi_type->debugName().c_str());
-                // printf("have to convert %s from %s to %s\n", it->first.c_str(),
-                // it->second->getType()->debugName().c_str(), phi_type->debugName().c_str());
-                ConcreteCompilerVariable* v = it->second->makeConverted(emitter, phi_type);
-                it->second->decvref(emitter);
-                symbol_table[it->first] = v->split(emitter);
-                ++it;
+                p.second->decvref(emitter);
+                symbol_table.erase(getIsDefinedName(p.first));
+                symbol_table.erase(p.first);
+            } else if (irstate->getPhis()->isRequiredAfter(p.first, myblock)) {
+                assert(scope_info->getScopeTypeOfName(p.first) != ScopeInfo::VarScopeType::GLOBAL);
+                ConcreteCompilerType* phi_type = types->getTypeAtBlockEnd(p.first, myblock);
+                // printf("Converting %s from %s to %s\n", p.first.c_str(),
+                // p.second->getType()->debugName().c_str(), phi_type->debugName().c_str());
+                // printf("have to convert %s from %s to %s\n", p.first.c_str(),
+                // p.second->getType()->debugName().c_str(), phi_type->debugName().c_str());
+                ConcreteCompilerVariable* v = p.second->makeConverted(emitter, phi_type);
+                p.second->decvref(emitter);
+                symbol_table[p.first] = v->split(emitter);
             } else {
 #ifndef NDEBUG
                 if (myblock->successors.size()) {
                     // TODO getTypeAtBlockEnd will automatically convert up to the concrete type, which we don't
                     // want
                     // here, but this is just for debugging so I guess let it happen for now:
-                    ConcreteCompilerType* ending_type = types->getTypeAtBlockEnd(it->first, myblock);
-                    ASSERT(it->second->canConvertTo(ending_type), "%s is supposed to be %s, but somehow is %s",
-                           it->first.c_str(), ending_type->debugName().c_str(),
-                           it->second->getType()->debugName().c_str());
+                    ConcreteCompilerType* ending_type = types->getTypeAtBlockEnd(p.first, myblock);
+                    ASSERT(p.second->canConvertTo(ending_type), "%s is supposed to be %s, but somehow is %s",
+                           p.first.c_str(), ending_type->debugName().c_str(), p.second->getType()->debugName().c_str());
                 }
 #endif
-
-                ++it;
             }
         }
 
-        for (const auto& s : also_remove) {
-            symbol_table.erase(s);
-        }
-
-        const PhiAnalysis::RequiredSet& all_phis = source->phis->getAllRequiredAfter(myblock);
+        const PhiAnalysis::RequiredSet& all_phis = irstate->getPhis()->getAllRequiredAfter(myblock);
         for (PhiAnalysis::RequiredSet::const_iterator it = all_phis.begin(), end = all_phis.end(); it != end; ++it) {
-            // printf("phi will be required for %s\n", it->c_str());
+            if (VERBOSITY() >= 3)
+                printf("phi will be required for %s\n", it->c_str());
             assert(scope_info->getScopeTypeOfName(*it) != ScopeInfo::VarScopeType::GLOBAL);
             CompilerVariable*& cur = symbol_table[*it];
 
@@ -2270,7 +2317,7 @@ private:
                 ConcreteCompilerVariable* is_defined
                     = static_cast<ConcreteCompilerVariable*>(_popFake(defined_name, true));
 
-                if (source->phis->isPotentiallyUndefinedAfter(*it, myblock)) {
+                if (irstate->getPhis()->isPotentiallyUndefinedAfter(*it, myblock)) {
                     // printf("is potentially undefined later, so marking it defined\n");
                     if (is_defined) {
                         _setFake(defined_name, is_defined);
@@ -2300,17 +2347,28 @@ public:
         stackmap_args.push_back(irstate->getFrameInfoVar());
 
         assert(INT->llvmType() == g.i64);
-        stackmap_args.push_back(getConstantInt((uint64_t)current_stmt, g.i64));
+        if (ENABLE_JIT_OBJECT_CACHE) {
+            llvm::Value* v;
+            if (current_stmt)
+                v = emitter.getBuilder()->CreatePtrToInt(embedRelocatablePtr(current_stmt, g.i8_ptr), g.i64);
+            else
+                v = getConstantInt(0, g.i64);
+            stackmap_args.push_back(v);
+        } else {
+            stackmap_args.push_back(getConstantInt((uint64_t)current_stmt, g.i64));
+        }
+
         pp->addFrameVar("!current_stmt", INT);
 
         if (ENABLE_FRAME_INTROSPECTION) {
             // TODO: don't need to use a sorted symbol table if we're explicitly recording the names!
             // nice for debugging though.
-            SortedSymbolTable sorted_symbol_table(symbol_table.begin(), symbol_table.end());
-
+            typedef std::pair<InternedString, CompilerVariable*> Entry;
+            std::vector<Entry> sorted_symbol_table(symbol_table.begin(), symbol_table.end());
+            std::sort(sorted_symbol_table.begin(), sorted_symbol_table.end(),
+                      [](const Entry& lhs, const Entry& rhs) { return lhs.first < rhs.first; });
             for (const auto& p : sorted_symbol_table) {
                 CompilerVariable* v = p.second;
-
                 v->serializeToFrame(stackmap_args);
                 pp->addFrameVar(p.first.str(), v->getType());
             }
@@ -2358,7 +2416,7 @@ public:
         // We have one successor, but they have more than one predecessor.
         // We're going to sort out which symbols need to go in phi_st and which belong inst.
         for (SymbolTable::iterator it = st->begin(); it != st->end();) {
-            if (allowableFakeEndingSymbol(it->first) || source->phis->isRequiredAfter(it->first, myblock)) {
+            if (allowableFakeEndingSymbol(it->first) || irstate->getPhis()->isRequiredAfter(it->first, myblock)) {
                 ASSERT(it->second->isGrabbed(), "%s", it->first.c_str());
                 assert(it->second->getVrefs() == 1);
                 // this conversion should have already happened... should refactor this.
@@ -2437,7 +2495,7 @@ public:
 
         if (scope_info->createsClosure()) {
             if (!passed_closure)
-                passed_closure = embedConstantPtr(nullptr, g.llvm_closure_type_ptr);
+                passed_closure = getNullPtr(g.llvm_closure_type_ptr);
 
             llvm::Value* new_closure = emitter.getBuilder()->CreateCall2(
                 g.funcs.createClosure, passed_closure, getConstantInt(scope_info->getClosureSize(), g.i64));

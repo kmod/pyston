@@ -64,7 +64,7 @@ union Value {
     Value(double d) : d(d) {}
     Value(Box* o) : o(o) {
         if (DEBUG >= 2)
-            assert(gc::isValidGCObject(o));
+            ASSERT(gc::isValidGCObject(o), "%p", o);
     }
 };
 
@@ -104,6 +104,7 @@ private:
     Value visit_dict(AST_Dict* node);
     Value visit_expr(AST_expr* node);
     Value visit_expr(AST_Expr* node);
+    Value visit_extslice(AST_ExtSlice* node);
     Value visit_index(AST_Index* node);
     Value visit_lambda(AST_Lambda* node);
     Value visit_list(AST_List* node);
@@ -131,6 +132,7 @@ private:
     CompiledFunction* compiled_func;
     SourceInfo* source_info;
     ScopeInfo* scope_info;
+    PhiAnalysis* phis;
 
     SymMap sym_table;
     CFGBlock* next_block, *current_block;
@@ -222,9 +224,9 @@ void ASTInterpreter::gcVisit(GCVisitor* visitor) {
 }
 
 ASTInterpreter::ASTInterpreter(CompiledFunction* compiled_function)
-    : compiled_func(compiled_function), source_info(compiled_function->clfunc->source), scope_info(0), current_block(0),
-      current_inst(0), last_exception(NULL, NULL, NULL), passed_closure(0), created_closure(0), generator(0),
-      edgecount(0), frame_info(ExcInfo(NULL, NULL, NULL)) {
+    : compiled_func(compiled_function), source_info(compiled_function->clfunc->source), scope_info(0), phis(NULL),
+      current_block(0), current_inst(0), last_exception(NULL, NULL, NULL), passed_closure(0), created_closure(0),
+      generator(0), edgecount(0), frame_info(ExcInfo(NULL, NULL, NULL)) {
 
     CLFunction* f = compiled_function->clfunc;
     if (!source_info->cfg)
@@ -323,15 +325,19 @@ void ASTInterpreter::eraseDeadSymbols() {
     if (source_info->liveness == NULL)
         source_info->liveness = computeLivenessInfo(source_info->cfg);
 
-    if (source_info->phis == NULL)
-        source_info->phis = computeRequiredPhis(compiled_func->clfunc->param_names, source_info->cfg,
-                                                source_info->liveness, scope_info);
+    if (this->phis == NULL) {
+        PhiAnalysis*& phis = source_info->phis[/* entry_descriptor = */ NULL];
+        if (!phis)
+            phis = computeRequiredPhis(compiled_func->clfunc->param_names, source_info->cfg, source_info->liveness,
+                                       scope_info);
+        this->phis = phis;
+    }
 
     std::vector<InternedString> dead_symbols;
     for (auto& it : sym_table) {
         if (!source_info->liveness->isLiveAtEnd(it.first, current_block)) {
             dead_symbols.push_back(it.first);
-        } else if (source_info->phis->isRequiredAfter(it.first, current_block)) {
+        } else if (phis->isRequiredAfter(it.first, current_block)) {
             assert(scope_info->getScopeTypeOfName(it.first) != ScopeInfo::VarScopeType::GLOBAL);
         } else {
         }
@@ -430,6 +436,14 @@ Value ASTInterpreter::visit_slice(AST_Slice* node) {
     return createSlice(lower.o, upper.o, step.o);
 }
 
+Value ASTInterpreter::visit_extslice(AST_ExtSlice* node) {
+    int num_slices = node->dims.size();
+    BoxedTuple* rtn = BoxedTuple::create(num_slices);
+    for (int i = 0; i < num_slices; ++i)
+        rtn->elts[i] = visit_expr(node->dims[i]).o;
+    return rtn;
+}
+
 Value ASTInterpreter::visit_branch(AST_Branch* node) {
     Value v = visit_expr(node->test);
     ASSERT(v.o == True || v.o == False, "Should have called NONZERO before this branch");
@@ -463,10 +477,9 @@ Value ASTInterpreter::visit_jump(AST_Jump* node) {
 
             std::map<InternedString, Box*> sorted_symbol_table;
 
-            auto phis = compiled_func->clfunc->source->phis;
             for (auto& name : phis->definedness.getDefinedNamesAtEnd(current_block)) {
                 auto it = sym_table.find(name);
-                if (!compiled_func->clfunc->source->liveness->isLiveAtEnd(name, current_block))
+                if (!source_info->liveness->isLiveAtEnd(name, current_block))
                     continue;
 
                 if (phis->isPotentiallyUndefinedAfter(name, current_block)) {
@@ -523,8 +536,15 @@ Value ASTInterpreter::visit_jump(AST_Jump* node) {
 
             CompiledFunction* partial_func = compilePartialFuncInternal(&exit);
             auto arg_tuple = getTupleFromArgsArray(&arg_array[0], arg_array.size());
-            return partial_func->call(std::get<0>(arg_tuple), std::get<1>(arg_tuple), std::get<2>(arg_tuple),
-                                      std::get<3>(arg_tuple));
+            Box* r = partial_func->call(std::get<0>(arg_tuple), std::get<1>(arg_tuple), std::get<2>(arg_tuple),
+                                        std::get<3>(arg_tuple));
+
+            // This is one of the few times that we are allowed to have an invalid value in a Box* Value.
+            // Check for it, and return as an int so that we don't trigger a potential assert when
+            // creating the Value.
+            if (compiled_func->getReturnType() != VOID)
+                assert(r);
+            return (intptr_t)r;
         }
     }
 
@@ -850,13 +870,18 @@ Value ASTInterpreter::visit_delete(AST_Delete* node) {
                     continue;
                 } else if (vst == ScopeInfo::VarScopeType::NAME) {
                     assert(frame_info.boxedLocals != NULL);
-                    assert(frame_info.boxedLocals->cls == dict_cls);
-                    auto& d = static_cast<BoxedDict*>(frame_info.boxedLocals)->d;
-                    auto it = d.find(boxString(target->id.str()));
-                    if (it == d.end()) {
-                        assertNameDefined(0, target->id.c_str(), NameError, false /* local_var_msg */);
+                    if (frame_info.boxedLocals->cls == dict_cls) {
+                        auto& d = static_cast<BoxedDict*>(frame_info.boxedLocals)->d;
+                        auto it = d.find(boxString(target->id.str()));
+                        if (it == d.end()) {
+                            assertNameDefined(0, target->id.c_str(), NameError, false /* local_var_msg */);
+                        }
+                        d.erase(it);
+                    } else if (frame_info.boxedLocals->cls == attrwrapper_cls) {
+                        attrwrapperDel(frame_info.boxedLocals, target->id.str());
+                    } else {
+                        RELEASE_ASSERT(0, "%s", frame_info.boxedLocals->cls->tp_name);
                     }
-                    d.erase(it);
                 } else {
                     assert(vst == ScopeInfo::VarScopeType::FAST);
 
@@ -902,7 +927,9 @@ Value ASTInterpreter::visit_print(AST_Print* node) {
         if (softspace(dest, new_softspace)) {
             callattrInternal(dest, &write_str, CLASS_OR_INST, 0, ArgPassSpec(1), boxString(space_str), 0, 0, 0, 0);
         }
-        callattrInternal(dest, &write_str, CLASS_OR_INST, 0, ArgPassSpec(1), str(var), 0, 0, 0, 0);
+
+        Box* str_or_unicode_var = (var->cls == unicode_cls) ? var : str(var);
+        callattrInternal(dest, &write_str, CLASS_OR_INST, 0, ArgPassSpec(1), str_or_unicode_var, 0, 0, 0, 0);
     }
 
     if (node->nl) {
@@ -942,6 +969,8 @@ Value ASTInterpreter::visit_expr(AST_expr* node) {
             return visit_compare((AST_Compare*)node);
         case AST_TYPE::Dict:
             return visit_dict((AST_Dict*)node);
+        case AST_TYPE::ExtSlice:
+            return visit_extslice((AST_ExtSlice*)node);
         case AST_TYPE::Index:
             return visit_index((AST_Index*)node);
         case AST_TYPE::Lambda:

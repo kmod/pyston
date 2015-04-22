@@ -38,6 +38,7 @@
 #include "core/stats.h"
 #include "core/types.h"
 #include "core/util.h"
+#include "runtime/capi.h"
 #include "runtime/objmodel.h"
 #include "runtime/types.h"
 
@@ -155,8 +156,6 @@ static void compileIR(CompiledFunction* cf, EffortLevel effort) {
         assert(compiled);
         ASSERT(compiled == cf->code, "cf->code should have gotten filled in");
 
-        cf->llvm_code = embedConstantPtr(compiled, cf->func->getType());
-
         long us = _t.end();
         static StatCounter us_jitting("us_compiling_jitting");
         us_jitting.log(us);
@@ -169,7 +168,7 @@ static void compileIR(CompiledFunction* cf, EffortLevel effort) {
         }
     }
 
-    if (VERBOSITY("irgen") >= 1) {
+    if (VERBOSITY("irgen") >= 2) {
         printf("Compiled function to %p\n", cf->code);
     }
 
@@ -199,7 +198,7 @@ CompiledFunction* compileFunction(CLFunction* f, FunctionSpecialization* spec, E
         llvm::raw_string_ostream ss(s);
 
         if (spec) {
-            ss << "\033[34;1mJIT'ing " << name << " with signature (";
+            ss << "\033[34;1mJIT'ing " << source->parent_module->fn << ":" << name << " with signature (";
             for (int i = 0; i < spec->arg_types.size(); i++) {
                 if (i > 0)
                     ss << ", ";
@@ -209,8 +208,8 @@ CompiledFunction* compileFunction(CLFunction* f, FunctionSpecialization* spec, E
             ss << ") -> ";
             ss << spec->rtn_type->debugName();
         } else {
-            ss << "\033[34;1mDoing OSR-entry partial compile of " << name << ", starting with backedge to block "
-               << entry_descriptor->backedge->target->idx;
+            ss << "\033[34;1mDoing OSR-entry partial compile of " << source->parent_module->fn << ":" << name
+               << ", starting with backedge to block " << entry_descriptor->backedge->target->idx;
         }
         ss << " at effort level " << (int)effort;
         ss << "\033[0m";
@@ -233,8 +232,13 @@ CompiledFunction* compileFunction(CLFunction* f, FunctionSpecialization* spec, E
         if (source->liveness == NULL)
             source->liveness = computeLivenessInfo(source->cfg);
 
-        if (source->phis == NULL)
-            source->phis = computeRequiredPhis(f->param_names, source->cfg, source->liveness, source->getScopeInfo());
+        PhiAnalysis*& phis = source->phis[entry_descriptor];
+        if (!phis) {
+            if (entry_descriptor)
+                phis = computeRequiredPhis(entry_descriptor, source->liveness, source->getScopeInfo());
+            else
+                phis = computeRequiredPhis(f->param_names, source->cfg, source->liveness, source->getScopeInfo());
+        }
     }
 
 
@@ -242,7 +246,7 @@ CompiledFunction* compileFunction(CLFunction* f, FunctionSpecialization* spec, E
     CompiledFunction* cf = 0;
     if (effort == EffortLevel::INTERPRETED) {
         assert(!entry_descriptor);
-        cf = new CompiledFunction(0, spec, true, NULL, NULL, effort, 0);
+        cf = new CompiledFunction(0, spec, true, NULL, effort, 0);
     } else {
         cf = doCompile(source, &f->param_names, entry_descriptor, effort, spec, name);
         compileIR(cf, effort);
@@ -368,12 +372,32 @@ Box* eval(Box* boxedCode) {
     if (globals == module)
         globals = NULL;
 
+    if (globals && globals->cls == attrwrapper_cls && unwrapAttrWrapper(globals) == module)
+        globals = NULL;
+
+    if (boxedCode->cls == unicode_cls) {
+        boxedCode = PyUnicode_AsUTF8String(boxedCode);
+        if (!boxedCode)
+            throwCAPIException();
+        // cf.cf_flags |= PyCF_SOURCE_IS_UTF8
+    }
+
     // TODO error message if parse fails or if it isn't an expr
     // TODO should have a cleaner interface that can parse the Expression directly
     // TODO this memory leaks
-    RELEASE_ASSERT(boxedCode->cls == str_cls, "");
+    RELEASE_ASSERT(boxedCode->cls == str_cls, "%s", boxedCode->cls->tp_name);
     const char* code = static_cast<BoxedString*>(boxedCode)->s.data();
+
+    // Hack: we need to support things like `eval(" 2")`.
+    // This is over-accepting since it will accept things like `eval("\n 2")`
+    while (*code == ' ' || *code == '\t' || *code == '\n' || *code == '\r')
+        code++;
+
     AST_Module* parsedModule = parse_string(code);
+    if (parsedModule->body.size() == 0)
+        raiseSyntaxError("unexpected EOF while parsing", 0, 0, "<string>", "");
+
+    RELEASE_ASSERT(parsedModule->body.size() == 1, "");
     RELEASE_ASSERT(parsedModule->body[0]->type == AST_TYPE::Expr, "");
     AST_Expression* parsedExpr = new AST_Expression(std::move(parsedModule->interned_strings));
     parsedExpr->body = static_cast<AST_Expr*>(parsedModule->body[0])->value;
@@ -390,6 +414,18 @@ Box* eval(Box* boxedCode) {
 }
 
 Box* exec(Box* boxedCode, Box* globals, Box* locals) {
+    if (isSubclass(boxedCode->cls, tuple_cls)) {
+        RELEASE_ASSERT(!globals, "");
+        RELEASE_ASSERT(!locals, "");
+
+        BoxedTuple* t = static_cast<BoxedTuple*>(boxedCode);
+        RELEASE_ASSERT(t->size() >= 2 && t->size() <= 3, "%ld", t->size());
+        boxedCode = t->elts[0];
+        globals = t->elts[1];
+        if (t->size() >= 3)
+            locals = t->elts[2];
+    }
+
     if (globals == None)
         globals = NULL;
 
@@ -414,7 +450,10 @@ Box* exec(Box* boxedCode, Box* globals, Box* locals) {
     if (globals == module)
         globals = NULL;
 
-    assert(!globals || globals->cls == dict_cls);
+    if (globals && globals->cls == attrwrapper_cls && unwrapAttrWrapper(globals) == module)
+        globals = NULL;
+
+    ASSERT(!globals || globals->cls == dict_cls, "%s", globals->cls->tp_name);
 
     if (globals) {
         // From CPython (they set it to be f->f_builtins):
@@ -422,8 +461,15 @@ Box* exec(Box* boxedCode, Box* globals, Box* locals) {
             PyDict_SetItemString(globals, "__builtins__", builtins_module);
     }
 
+    if (boxedCode->cls == unicode_cls) {
+        boxedCode = PyUnicode_AsUTF8String(boxedCode);
+        if (!boxedCode)
+            throwCAPIException();
+        // cf.cf_flags |= PyCF_SOURCE_IS_UTF8
+    }
+
     // TODO same issues as in `eval`
-    RELEASE_ASSERT(boxedCode->cls == str_cls, "");
+    RELEASE_ASSERT(boxedCode->cls == str_cls, "%s", boxedCode->cls->tp_name);
     const char* code = static_cast<BoxedString*>(boxedCode)->s.data();
     AST_Module* parsedModule = parse_string(code);
     AST_Suite* parsedSuite = new AST_Suite(std::move(parsedModule->interned_strings));
@@ -547,7 +593,7 @@ void* compilePartialFunc(OSRExit* exit) {
 
 static StatCounter stat_reopt("reopts");
 extern "C" CompiledFunction* reoptCompiledFuncInternal(CompiledFunction* cf) {
-    if (VERBOSITY("irgen") >= 1)
+    if (VERBOSITY("irgen") >= 2)
         printf("In reoptCompiledFunc, %p, %ld\n", cf, cf->times_called);
     stat_reopt.log();
 
@@ -618,21 +664,6 @@ void addRTFunction(CLFunction* cl_f, void* f, ConcreteCompilerType* rtn_type,
 #endif
 
     FunctionSpecialization* spec = new FunctionSpecialization(processType(rtn_type), arg_types);
-
-    std::vector<llvm::Type*> llvm_arg_types;
-    int npassed_args = arg_types.size();
-    assert(npassed_args == cl_f->numReceivedArgs());
-    for (int i = 0; i < npassed_args; i++) {
-        if (i == 3) {
-            llvm_arg_types.push_back(g.i8_ptr->getPointerTo());
-            break;
-        }
-        llvm_arg_types.push_back(arg_types[i]->llvmType());
-    }
-
-    llvm::FunctionType* ft = llvm::FunctionType::get(g.llvm_value_type_ptr, llvm_arg_types, false);
-
-    cl_f->addVersion(new CompiledFunction(NULL, spec, false, f, embedConstantPtr(f, ft->getPointerTo()),
-                                          EffortLevel::MAXIMAL, NULL));
+    cl_f->addVersion(new CompiledFunction(NULL, spec, false, f, EffortLevel::MAXIMAL, NULL));
 }
 }

@@ -258,11 +258,16 @@ extern "C" PyObject* PyObject_GetAttr(PyObject* o, PyObject* attr_name) noexcept
 }
 
 extern "C" PyObject* PyObject_GenericGetAttr(PyObject* o, PyObject* name) noexcept {
-    Box* r = getattrInternalGeneric(o, static_cast<BoxedString*>(name)->data(), NULL, false, false, NULL, NULL);
-    if (!r)
-        PyErr_Format(PyExc_AttributeError, "'%.50s' object has no attribute '%.400s'", o->cls->tp_name,
-                     PyString_AS_STRING(name));
-    return r;
+    try {
+        Box* r = getattrInternalGeneric(o, static_cast<BoxedString*>(name)->s.data(), NULL, false, false, NULL, NULL);
+        if (!r)
+            PyErr_Format(PyExc_AttributeError, "'%.50s' object has no attribute '%.400s'", o->cls->tp_name,
+                         PyString_AS_STRING(name));
+        return r;
+    } catch (ExcInfo e) {
+        setCAPIException(e);
+        return NULL;
+    }
 }
 
 extern "C" PyObject* _PyObject_GenericGetAttrWithDict(PyObject* obj, PyObject* name, PyObject* dict) noexcept {
@@ -399,7 +404,6 @@ extern "C" PyObject* PyObject_Call(PyObject* callable_object, PyObject* args, Py
 
 extern "C" int PyObject_GetBuffer(PyObject* obj, Py_buffer* view, int flags) noexcept {
     if (!PyObject_CheckBuffer(obj)) {
-        printf("%s\n", obj->cls->tp_name);
         PyErr_Format(PyExc_TypeError, "'%100s' does not have the buffer interface", Py_TYPE(obj)->tp_name);
         return -1;
     }
@@ -520,26 +524,23 @@ extern "C" Py_ssize_t PySequence_Index(PyObject* o, PyObject* value) noexcept {
     return -1;
 }
 
-extern "C" PyObject* PySequence_Tuple(PyObject* o) noexcept {
-    if (o->cls == tuple_cls)
-        return o;
-    if (PyList_Check(o))
-        return PyList_AsTuple(o);
-
-    fatalOrError(PyExc_NotImplementedError, "unimplemented");
-    return nullptr;
-}
-
 extern "C" PyObject* PyIter_Next(PyObject* iter) noexcept {
-    static const std::string next_str("next");
     try {
-        return callattr(iter, &next_str, CallattrFlags({.cls_only = true, .null_on_nonexistent = false }),
-                        ArgPassSpec(0), NULL, NULL, NULL, NULL, NULL);
+        Box* hasnext = iter->hasnextOrNullIC();
+        if (hasnext) {
+            if (hasnext->nonzeroIC())
+                return iter->nextIC();
+            else
+                return NULL;
+        } else {
+            return iter->nextIC();
+        }
     } catch (ExcInfo e) {
-        if (!e.matches(StopIteration))
-            setCAPIException(e);
-        return NULL;
+        if (e.matches(StopIteration))
+            return NULL;
+        setCAPIException(e);
     }
+    return NULL;
 }
 
 extern "C" int PyCallable_Check(PyObject* x) noexcept {
@@ -1232,6 +1233,14 @@ extern "C" PyObject* PyCFunction_NewEx(PyMethodDef* ml, PyObject* self, PyObject
     return new BoxedCApiFunction(ml->ml_flags, self, ml->ml_name, ml->ml_meth);
 }
 
+extern "C" PyCFunction PyCFunction_GetFunction(PyObject* op) noexcept {
+    if (!PyCFunction_Check(op)) {
+        PyErr_BadInternalCall();
+        return NULL;
+    }
+    return ((PyCFunctionObject*)op)->m_ml->ml_meth;
+}
+
 extern "C" int _PyEval_SliceIndex(PyObject* v, Py_ssize_t* pi) noexcept {
     if (v != NULL) {
         Py_ssize_t x;
@@ -1268,47 +1277,45 @@ extern "C" char* PyModule_GetName(PyObject* m) noexcept {
     return &static_cast<BoxedModule*>(m)->fn[0];
 }
 
-BoxedModule* importTestExtension(const std::string& name) {
-    llvm::SmallString<128> pathname_str;
-    // TODO supposed to pass argv0, main_addr to this function:
-    pathname_str = llvm::sys::fs::getMainExecutable(NULL, NULL);
-    assert(pathname_str.size() && "could not find the path to the pyston src dir");
-
-    // Start by removing the binary name
-    llvm::sys::path::remove_filename(pathname_str);
-
-    llvm::sys::path::append(pathname_str, "test/test_extension");
-    llvm::sys::path::append(pathname_str, name + ".pyston.so");
-
-    const char* pathname = pathname_str.str().str().c_str();
-    void* handle = dlopen(pathname, RTLD_NOW);
+BoxedModule* importCExtension(const std::string& full_name, const std::string& last_name, const std::string& path) {
+    void* handle = dlopen(path.c_str(), RTLD_NOW);
     if (!handle) {
+        // raiseExcHelper(ImportError, "%s", dlerror());
         fprintf(stderr, "%s\n", dlerror());
         exit(1);
     }
     assert(handle);
 
-    std::string initname = "init" + name;
+    std::string initname = "init" + last_name;
     void (*init)() = (void (*)())dlsym(handle, initname.c_str());
 
     char* error;
     if ((error = dlerror()) != NULL) {
+        // raiseExcHelper(ImportError, "%s", error);
         fprintf(stderr, "%s\n", error);
         exit(1);
     }
 
     assert(init);
+
+    char* packagecontext = strdup(full_name.c_str());
+    char* oldcontext = _Py_PackageContext;
+    _Py_PackageContext = packagecontext;
     (*init)();
+    _Py_PackageContext = oldcontext;
+    free(packagecontext);
+
+    checkAndThrowCAPIException();
 
     BoxedDict* sys_modules = getSysModulesDict();
-    Box* s = boxStrConstant(name.c_str());
+    Box* s = boxStrConstant(full_name.c_str());
     Box* _m = sys_modules->d[s];
-    RELEASE_ASSERT(_m, "module failed to initialize properly?");
+    RELEASE_ASSERT(_m, "dynamic module not initialized properly");
     assert(_m->cls == module_cls);
 
     BoxedModule* m = static_cast<BoxedModule*>(_m);
-    m->setattr("__file__", boxStrConstant(pathname), NULL);
-    m->fn = pathname;
+    m->setattr("__file__", boxString(path), NULL);
+    m->fn = path;
     return m;
 }
 
@@ -1374,12 +1381,5 @@ void setupCAPI() {
 }
 
 void teardownCAPI() {
-}
-
-void fatalOrError(PyObject* exception, const char* message) noexcept {
-    if (CONTINUE_AFTER_FATAL)
-        PyErr_SetString(exception, message);
-    else
-        Py_FatalError(message);
 }
 }

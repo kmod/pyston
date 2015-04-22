@@ -223,6 +223,13 @@ SearchResult findModule(const std::string& name, const std::string& full_name, B
 
         if (pathExists(fn))
             return SearchResult(std::move(fn), SearchResult::PY_SOURCE);
+
+        joined_path.clear();
+        llvm::sys::path::append(joined_path, p->s, name + ".pyston.so");
+        fn = joined_path.str();
+
+        if (pathExists(fn))
+            return SearchResult(std::move(fn), SearchResult::C_EXTENSION);
     }
 
     return SearchResult("", SearchResult::SEARCH_ERROR);
@@ -267,7 +274,14 @@ static Box* getParent(Box* globals, int level, std::string& buf) {
         if (modname == NULL || modname->cls != str_cls)
             return None;
 
-        Box* modpath = getattrInternal(globals, path_str, NULL);
+        Box* modpath = NULL;
+        try {
+            modpath = getattrInternal(globals, path_str, NULL);
+        } catch (ExcInfo e) {
+            if (!e.matches(AttributeError))
+                raiseRaw(e);
+        }
+
         if (modpath != NULL) {
             /* __path__ is set, so modname is already the package name */
             if (modname->size() > PATH_MAX) {
@@ -353,6 +367,8 @@ static Box* importSub(const std::string& name, const std::string& full_name, Box
             module = createAndRunModule(full_name, sr.path);
         else if (sr.type == SearchResult::PKG_DIRECTORY)
             module = createAndRunModule(full_name, sr.path + "/__init__.py", sr.path);
+        else if (sr.type == SearchResult::C_EXTENSION)
+            module = importCExtension(full_name, name, sr.path);
         else if (sr.type == SearchResult::IMP_HOOK) {
             const static std::string load_module_str("load_module");
             module = callattr(sr.loader, &load_module_str,
@@ -365,14 +381,6 @@ static Box* importSub(const std::string& name, const std::string& full_name, Box
             parent_module->setattr(name, module, NULL);
         return module;
     }
-
-    // TODO: these are a crude hack to help our tests, find a better way
-    if (name == "basic_test")
-        return importTestExtension("basic_test");
-    if (name == "descr_test")
-        return importTestExtension("descr_test");
-    if (name == "slots_test")
-        return importTestExtension("slots_test");
 
     return None;
 }
@@ -515,7 +523,15 @@ extern "C" PyObject* PyImport_ImportModuleLevel(const char* name, PyObject* glob
 }
 
 static void ensureFromlist(Box* module, Box* fromlist, std::string& buf, bool recursive) {
-    if (getattrInternal(module, path_str, NULL) == NULL) {
+    Box* pathlist = NULL;
+    try {
+        pathlist = getattrInternal(module, path_str, NULL);
+    } catch (ExcInfo e) {
+        if (!e.matches(AttributeError))
+            raiseRaw(e);
+    }
+
+    if (pathlist == NULL) {
         // If it's not a package, then there's no sub-importing to do
         return;
     }

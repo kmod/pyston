@@ -15,6 +15,12 @@
 #ifndef PYSTON_EXTINCLUDE_PYTHON_H
 #define PYSTON_EXTINCLUDE_PYTHON_H
 
+// Cython depends on having this define set:
+#define Py_PYTHON_H
+
+// Cython has some "not targeting CPython" support that is triggered by having PYPY_VERSION defined:
+#define PYPY_VERSION "Pyston"
+
 // These include orders come from CPython:
 #include "patchlevel.h"
 #include "pyconfig.h"
@@ -62,9 +68,10 @@
 #include "bufferobject.h"
 #include "bytesobject.h"
 #include "bytearrayobject.h"
+#include "tupleobject.h"
 #include "listobject.h"
 #include "dictobject.h"
-#include "tupleobject.h"
+#include "setobject.h"
 #include "methodobject.h"
 #include "moduleobject.h"
 #include "classobject.h"

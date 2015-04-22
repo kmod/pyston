@@ -21,9 +21,11 @@
 
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/StringSet.h"
 
 #include "analysis/fpc.h"
 #include "analysis/scoping_analysis.h"
+#include "codegen/osrentry.h"
 #include "core/ast.h"
 #include "core/cfg.h"
 #include "core/common.h"
@@ -50,10 +52,10 @@ private:
         }
     };
 
-    std::unordered_set<AST_Name*> kills;
-    std::unordered_map<InternedString, AST_Name*> last_uses;
+    llvm::DenseSet<AST_Name*> kills;
+    llvm::DenseMap<InternedString, AST_Name*> last_uses;
 
-    std::unordered_map<InternedString, Status> statuses;
+    llvm::DenseMap<InternedString, Status> statuses;
     LivenessAnalysis* analysis;
 
     void _doLoad(InternedString name, AST_Name* node) {
@@ -169,8 +171,6 @@ bool LivenessAnalysis::isKill(AST_Name* node, CFGBlock* parent_block) {
 }
 
 bool LivenessAnalysis::isLiveAtEnd(InternedString name, CFGBlock* block) {
-    Timer _t("LivenessAnalysis()", 10);
-
     if (name.str()[0] != '#')
         return true;
 
@@ -178,7 +178,9 @@ bool LivenessAnalysis::isLiveAtEnd(InternedString name, CFGBlock* block) {
         return false;
 
     if (!result_cache.count(name)) {
-        std::unordered_map<CFGBlock*, bool>& map = result_cache[name];
+        Timer _t("LivenessAnalysis()", 10);
+
+        llvm::DenseMap<CFGBlock*, bool>& map = result_cache[name];
 
         // Approach:
         // - Find all uses (blocks where the status is USED)
@@ -208,11 +210,11 @@ bool LivenessAnalysis::isLiveAtEnd(InternedString name, CFGBlock* block) {
                 }
             }
         }
-    }
 
-    // Note: this one gets counted as part of us_compiling_irgen as well:
-    static StatCounter us_liveness("us_compiling_analysis_liveness");
-    us_liveness.log(_t.end());
+        // Note: this one gets counted as part of us_compiling_irgen as well:
+        static StatCounter us_liveness("us_compiling_analysis_liveness");
+        us_liveness.log(_t.end());
+    }
 
     return result_cache[name][block];
 }
@@ -221,13 +223,10 @@ class DefinednessBBAnalyzer : public BBAnalyzer<DefinednessAnalysis::DefinitionL
 private:
     typedef DefinednessAnalysis::DefinitionLevel DefinitionLevel;
 
-    CFG* cfg;
     ScopeInfo* scope_info;
-    const ParamNames& arg_names;
 
 public:
-    DefinednessBBAnalyzer(CFG* cfg, ScopeInfo* scope_info, const ParamNames& arg_names)
-        : cfg(cfg), scope_info(scope_info), arg_names(arg_names) {}
+    DefinednessBBAnalyzer(ScopeInfo* scope_info) : scope_info(scope_info) {}
 
     virtual DefinitionLevel merge(DefinitionLevel from, DefinitionLevel into) const {
         assert(from != DefinednessAnalysis::Undefined);
@@ -348,15 +347,6 @@ public:
 void DefinednessBBAnalyzer::processBB(Map& starting, CFGBlock* block) const {
     DefinednessVisitor visitor(starting);
 
-    if (block == cfg->getStartingBlock()) {
-        for (auto e : arg_names.args)
-            visitor._doSet(scope_info->internString(e));
-        if (arg_names.vararg.size())
-            visitor._doSet(scope_info->internString(arg_names.vararg));
-        if (arg_names.kwarg.size())
-            visitor._doSet(scope_info->internString(arg_names.kwarg));
-    }
-
     for (int i = 0; i < block->body.size(); i++) {
         block->body[i]->accept(&visitor);
     }
@@ -369,23 +359,25 @@ void DefinednessBBAnalyzer::processBB(Map& starting, CFGBlock* block) const {
     }
 }
 
-DefinednessAnalysis::DefinednessAnalysis(const ParamNames& arg_names, CFG* cfg, ScopeInfo* scope_info)
-    : scope_info(scope_info) {
+void DefinednessAnalysis::run(llvm::DenseMap<InternedString, DefinednessAnalysis::DefinitionLevel>&& initial_map,
+                              CFGBlock* initial_block, ScopeInfo* scope_info) {
     Timer _t("DefinednessAnalysis()", 10);
 
-    results = computeFixedPoint(cfg, DefinednessBBAnalyzer(cfg, scope_info, arg_names), false);
+    // Don't run this twice:
+    assert(!defined_at_end.size());
 
-    for (const auto& p : results) {
-        RequiredSet required;
+    computeFixedPoint(std::move(initial_map), initial_block, DefinednessBBAnalyzer(scope_info), false,
+                      defined_at_beginning, defined_at_end);
+
+    for (const auto& p : defined_at_end) {
+        RequiredSet& required = defined_at_end_sets[p.first];
         for (const auto& p2 : p.second) {
             ScopeInfo::VarScopeType vst = scope_info->getScopeTypeOfName(p2.first);
             if (vst == ScopeInfo::VarScopeType::GLOBAL || vst == ScopeInfo::VarScopeType::NAME)
                 continue;
 
-            // printf("%d %s %d\n", p.first->idx, p2.first.c_str(), p2.second);
             required.insert(p2.first);
         }
-        defined_at_end.insert(make_pair(p.first, required));
     }
 
     static StatCounter us_definedness("us_compiling_analysis_definedness");
@@ -393,25 +385,45 @@ DefinednessAnalysis::DefinednessAnalysis(const ParamNames& arg_names, CFG* cfg, 
 }
 
 DefinednessAnalysis::DefinitionLevel DefinednessAnalysis::isDefinedAtEnd(InternedString name, CFGBlock* block) {
-    auto& map = results[block];
+    assert(defined_at_end.count(block));
+    auto& map = defined_at_end[block];
     if (map.count(name) == 0)
         return Undefined;
     return map[name];
 }
 
 const DefinednessAnalysis::RequiredSet& DefinednessAnalysis::getDefinedNamesAtEnd(CFGBlock* block) {
-    return defined_at_end[block];
+    assert(defined_at_end_sets.count(block));
+    return defined_at_end_sets[block];
 }
 
-PhiAnalysis::PhiAnalysis(const ParamNames& arg_names, CFG* cfg, LivenessAnalysis* liveness, ScopeInfo* scope_info)
-    : definedness(arg_names, cfg, scope_info), liveness(liveness) {
+PhiAnalysis::PhiAnalysis(llvm::DenseMap<InternedString, DefinednessAnalysis::DefinitionLevel>&& initial_map,
+                         CFGBlock* initial_block, bool initials_need_phis, LivenessAnalysis* liveness,
+                         ScopeInfo* scope_info)
+    : definedness(), liveness(liveness) {
     Timer _t("PhiAnalysis()", 10);
 
-    for (CFGBlock* block : cfg->blocks) {
-        RequiredSet required;
+    // I think this should always be the case -- if we're going to generate phis for the initial block,
+    // then we should include the initial arguments as an extra entry point.
+    assert(initials_need_phis == (initial_block->predecessors.size() > 0));
 
-        if (block->predecessors.size() > 1) {
+    definedness.run(std::move(initial_map), initial_block, scope_info);
+
+    for (const auto& p : definedness.defined_at_end) {
+        CFGBlock* block = p.first;
+        RequiredSet& required = required_phis[block];
+
+        int npred = 0;
+        for (CFGBlock* pred : block->predecessors) {
+            if (definedness.defined_at_end.count(pred))
+                npred++;
+        }
+
+        if (npred > 1 || (initials_need_phis && block == initial_block)) {
             for (CFGBlock* pred : block->predecessors) {
+                if (!definedness.defined_at_end.count(pred))
+                    continue;
+
                 const RequiredSet& defined = definedness.getDefinedNamesAtEnd(pred);
                 for (const auto& s : defined) {
                     if (required.count(s) == 0 && liveness->isLiveAtEnd(s, pred)) {
@@ -422,8 +434,6 @@ PhiAnalysis::PhiAnalysis(const ParamNames& arg_names, CFG* cfg, LivenessAnalysis
                 }
             }
         }
-
-        required_phis.insert(make_pair(block, std::move(required)));
     }
 
     static StatCounter us_phis("us_compiling_analysis_phis");
@@ -434,15 +444,18 @@ const PhiAnalysis::RequiredSet& PhiAnalysis::getAllRequiredAfter(CFGBlock* block
     static RequiredSet empty;
     if (block->successors.size() == 0)
         return empty;
+    assert(required_phis.count(block->successors[0]));
     return required_phis[block->successors[0]];
 }
 
 const PhiAnalysis::RequiredSet& PhiAnalysis::getAllRequiredFor(CFGBlock* block) {
+    assert(required_phis.count(block));
     return required_phis[block];
 }
 
 bool PhiAnalysis::isRequired(InternedString name, CFGBlock* block) {
     assert(!startswith(name.str(), "!"));
+    assert(required_phis.count(block));
     return required_phis[block].count(name) != 0;
 }
 
@@ -460,21 +473,18 @@ bool PhiAnalysis::isRequiredAfter(InternedString name, CFGBlock* block) {
 bool PhiAnalysis::isPotentiallyUndefinedAfter(InternedString name, CFGBlock* block) {
     assert(!startswith(name.str(), "!"));
 
-    if (block->successors.size() != 1)
-        return false;
-
-    return isPotentiallyUndefinedAt(name, block->successors[0]);
+    for (auto b : block->successors) {
+        if (isPotentiallyUndefinedAt(name, b))
+            return true;
+    }
+    return false;
 }
 
 bool PhiAnalysis::isPotentiallyUndefinedAt(InternedString name, CFGBlock* block) {
     assert(!startswith(name.str(), "!"));
 
-    for (CFGBlock* pred : block->predecessors) {
-        DefinednessAnalysis::DefinitionLevel dlevel = definedness.isDefinedAtEnd(name, pred);
-        if (dlevel != DefinednessAnalysis::Defined)
-            return true;
-    }
-    return false;
+    assert(definedness.defined_at_beginning.count(block));
+    return definedness.defined_at_beginning[block][name] != DefinednessAnalysis::Defined;
 }
 
 LivenessAnalysis* computeLivenessInfo(CFG* cfg) {
@@ -482,6 +492,38 @@ LivenessAnalysis* computeLivenessInfo(CFG* cfg) {
 }
 
 PhiAnalysis* computeRequiredPhis(const ParamNames& args, CFG* cfg, LivenessAnalysis* liveness, ScopeInfo* scope_info) {
-    return new PhiAnalysis(args, cfg, liveness, scope_info);
+    llvm::DenseMap<InternedString, DefinednessAnalysis::DefinitionLevel> initial_map;
+
+    for (auto e : args.args)
+        initial_map[scope_info->internString(e)] = DefinednessAnalysis::Defined;
+    if (args.vararg.size())
+        initial_map[scope_info->internString(args.vararg)] = DefinednessAnalysis::Defined;
+    if (args.kwarg.size())
+        initial_map[scope_info->internString(args.kwarg)] = DefinednessAnalysis::Defined;
+
+    return new PhiAnalysis(std::move(initial_map), cfg->getStartingBlock(), false, liveness, scope_info);
+}
+
+PhiAnalysis* computeRequiredPhis(const OSREntryDescriptor* entry_descriptor, LivenessAnalysis* liveness,
+                                 ScopeInfo* scope_info) {
+    llvm::DenseMap<InternedString, DefinednessAnalysis::DefinitionLevel> initial_map;
+
+    llvm::StringSet<> potentially_undefined;
+    for (const auto& p : entry_descriptor->args) {
+        if (!startswith(p.first.str(), "!is_defined_"))
+            continue;
+        potentially_undefined.insert(p.first.str().substr(12));
+    }
+
+    for (const auto& p : entry_descriptor->args) {
+        if (p.first.str()[0] == '!')
+            continue;
+        if (potentially_undefined.count(p.first.str()))
+            initial_map[p.first] = DefinednessAnalysis::PotentiallyDefined;
+        else
+            initial_map[p.first] = DefinednessAnalysis::Defined;
+    }
+
+    return new PhiAnalysis(std::move(initial_map), entry_descriptor->backedge->target, true, liveness, scope_info);
 }
 }

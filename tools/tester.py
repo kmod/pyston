@@ -40,6 +40,9 @@ TIME_LIMIT = 25
 TESTS_TO_SKIP = []
 EXIT_CODE_ONLY = False
 SKIP_FAILING_TESTS = False
+VERBOSE = 1
+
+PYTHONIOENCODING = 'utf-8'
 
 # For fun, can test pypy.
 # Tough because the tester will check to see if the error messages are exactly the
@@ -57,6 +60,7 @@ def set_ulimits():
     resource.setrlimit(resource.RLIMIT_RSS, (MAX_MEM_MB * 1024 * 1024, MAX_MEM_MB * 1024 * 1024))
 
 EXTMODULE_DIR = os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/../test/test_extension/build/lib.linux-x86_64-2.7/")
+EXTMODULE_DIR_PYSTON = None
 THIS_FILE = os.path.abspath(__file__)
 
 _global_mtime = None
@@ -94,6 +98,7 @@ def get_expected_output(fn):
     # TODO don't suppress warnings globally:
     env = dict(os.environ)
     env["PYTHONPATH"] = EXTMODULE_DIR
+    env["PYTHONIOENCODING"] = PYTHONIOENCODING
     p = subprocess.Popen(["python", "-Wignore", fn], stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=open("/dev/null"), preexec_fn=set_ulimits, env=env)
     out, err = p.communicate()
     code = p.wait()
@@ -139,9 +144,13 @@ def run_test(fn, check_stats, run_memcheck):
     if opts.skip:
         return "(skipped: %s)" % opts.skip
 
+    env = dict(os.environ)
+    env["PYTHONPATH"] = EXTMODULE_DIR_PYSTON
+    env["PYTHONIOENCODING"] = PYTHONIOENCODING
     run_args = [os.path.abspath(IMAGE)] + opts.jit_args + [fn]
     start = time.time()
-    p = subprocess.Popen(run_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=open("/dev/null"), preexec_fn=set_ulimits)
+    p = subprocess.Popen(run_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=open("/dev/null"),
+                         preexec_fn=set_ulimits, env=env)
     out, stderr = p.communicate()
     code = p.wait()
     elapsed = time.time() - start
@@ -260,7 +269,10 @@ def determine_test_result(fn, opts, code, out, stderr, elapsed):
             return "Expected failure (got code %d, should be %d)" % (code, expected_code)
         elif KEEP_GOING:
             failed.append(fn)
-            return "\033[%dmFAILED\033[0m (%s)" % (color, msg)
+            if VERBOSE >= 1:
+                return "\033[%dmFAILED\033[0m (%s)\n%s" % (color, msg, stderr)
+            else:
+                return "\033[%dmFAILED\033[0m (%s)" % (color, msg)
         else:
             raise Exception("%s\n%s\n%s" % (msg, err, stderr))
 
@@ -430,6 +442,8 @@ def main(orig_dir):
     global TESTS_TO_SKIP
     global EXIT_CODE_ONLY
     global SKIP_FAILING_TESTS
+    global VERBOSE
+    global EXTMODULE_DIR_PYSTON
 
     run_memcheck = False
 
@@ -441,11 +455,16 @@ def main(orig_dir):
     EXTRA_JIT_ARGS += opts.extra_args
     TIME_LIMIT = opts.time_limit
     TESTS_TO_SKIP = opts.skip_tests.split(',')
+    TESTS_TO_SKIP = filter(bool, TESTS_TO_SKIP) # "".split(',') == ['']
     EXIT_CODE_ONLY = opts.exit_code_only
     SKIP_FAILING_TESTS = opts.skip_failing
 
     TEST_DIR = os.path.join(orig_dir, opts.test_dir)
+    EXTMODULE_DIR_PYSTON = os.path.abspath(os.path.dirname(os.path.realpath(IMAGE)) + "/test/test_extension/")
     patterns = opts.pattern
+
+    if not patterns and not TESTS_TO_SKIP:
+        TESTS_TO_SKIP = ["t", "t2"]
 
     assert os.path.isdir(TEST_DIR), "%s doesn't look like a directory with tests in it" % TEST_DIR
 

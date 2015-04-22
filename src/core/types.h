@@ -188,7 +188,6 @@ public:
         uintptr_t code_start;
     };
     int code_size;
-    llvm::Value* llvm_code; // the llvm callable.
 
     EffortLevel effort;
 
@@ -200,10 +199,9 @@ public:
     std::vector<ICInfo*> ics;
 
     CompiledFunction(llvm::Function* func, FunctionSpecialization* spec, bool is_interpreted, void* code,
-                     llvm::Value* llvm_code, EffortLevel effort, const OSREntryDescriptor* entry_descriptor)
+                     EffortLevel effort, const OSREntryDescriptor* entry_descriptor)
         : clfunc(NULL), func(func), spec(spec), entry_descriptor(entry_descriptor), is_interpreted(is_interpreted),
-          code(code), llvm_code(llvm_code), effort(effort), times_called(0), times_speculation_failed(0),
-          location_map(nullptr) {
+          code(code), effort(effort), times_called(0), times_speculation_failed(0), location_map(nullptr) {
         assert((spec != NULL) + (entry_descriptor != NULL) == 1);
     }
 
@@ -246,7 +244,7 @@ public:
     AST* ast;
     CFG* cfg;
     LivenessAnalysis* liveness;
-    PhiAnalysis* phis;
+    std::unordered_map<const OSREntryDescriptor*, PhiAnalysis*> phis;
     bool is_generator;
 
     InternedStringPool& getInternedStrings();
@@ -307,7 +305,6 @@ public:
         assert((compiled->spec != NULL) + (compiled->entry_descriptor != NULL) == 1);
         assert(compiled->clfunc == NULL);
         assert(compiled->is_interpreted == (compiled->code == NULL));
-        assert(compiled->is_interpreted == (compiled->llvm_code == NULL));
         compiled->clfunc = this;
 
         if (compiled->entry_descriptor == NULL) {
@@ -561,22 +558,42 @@ struct ExcInfo {
     void printExcAndTraceback() const;
 };
 
+class BoxedFrame;
 struct FrameInfo {
+    // Note(kmod): we have a number of fields here that all have independent
+    // initialization rules.  We could potentially save time on every function-entry
+    // by having an "initialized" variable (or condition) that guards all of them.
+
     // *Not the same semantics as CPython's frame->f_exc*
     // In CPython, f_exc is the saved exc_info from the previous frame.
     // In Pyston, exc is the frame-local value of sys.exc_info.
     // - This makes frame entering+leaving faster at the expense of slower exceptions.
+    //
+    // exc.type is initialized to NULL at function entry, and exc.value and exc.tb are left
+    // uninitialized.  When one wants to access any of the values, you need to check if exc.type
+    // is NULL, and if so crawl up the stack looking for the first frame with a non-null exc.type
+    // and copy that.
     ExcInfo exc;
 
+    // This field is always initialized:
     Box* boxedLocals;
 
-    FrameInfo(ExcInfo exc) : exc(exc), boxedLocals(NULL) {}
+    BoxedFrame* frame_obj;
+
+    FrameInfo(ExcInfo exc) : exc(exc), boxedLocals(NULL), frame_obj(0) {}
 };
 
 struct CallattrFlags {
     bool cls_only : 1;
     bool null_on_nonexistent : 1;
+
+    char asInt() { return (cls_only << 0) + (null_on_nonexistent << 1); }
 };
+}
+
+namespace std {
+template <> std::pair<pyston::Box**, std::ptrdiff_t> get_temporary_buffer<pyston::Box*>(std::ptrdiff_t count) noexcept;
+template <> void return_temporary_buffer<pyston::Box*>(pyston::Box** p);
 }
 
 #endif

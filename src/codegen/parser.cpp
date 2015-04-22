@@ -403,6 +403,15 @@ AST_Expr* read_expr(BufferedReader* reader) {
     return rtn;
 }
 
+AST_ExtSlice* read_extslice(BufferedReader* reader) {
+    AST_ExtSlice* rtn = new AST_ExtSlice();
+
+    rtn->col_offset = -1;
+    rtn->lineno = -1;
+    readExprVector(rtn->dims, reader);
+    return rtn;
+}
+
 AST_For* read_for(BufferedReader* reader) {
     AST_For* rtn = new AST_For();
 
@@ -798,6 +807,8 @@ AST_expr* readASTExpr(BufferedReader* reader) {
             return read_dict(reader);
         case AST_TYPE::DictComp:
             return read_dictcomp(reader);
+        case AST_TYPE::ExtSlice:
+            return read_extslice(reader);
         case AST_TYPE::GeneratorExp:
             return read_generatorexp(reader);
         case AST_TYPE::IfExp:
@@ -944,7 +955,10 @@ static std::string getParserCommandLine(const char* fn) {
 
     llvm::sys::path::append(parse_ast_fn, "src/codegen/parse_ast.py");
 
-    return std::string("python -S ") + parse_ast_fn.str().str() + " " + fn;
+    // We may be running in an environment where "python" resolves to pyston (ex in
+    // a virtualenv), so try to hard code the path to CPython.
+    // This should probably be a configure-time check?
+    return std::string("/usr/bin/python -S ") + parse_ast_fn.str().str() + " " + fn;
 }
 
 AST_Module* parse_string(const char* code) {
@@ -971,7 +985,9 @@ AST_Module* parse_file(const char* fn) {
     Timer _t("parsing");
 
     if (ENABLE_PYPA_PARSER) {
-        return pypa_parse(fn);
+        AST_Module* rtn = pypa_parse(fn);
+        assert(rtn);
+        return rtn;
     }
 
     FILE* fp = popen(getParserCommandLine(fn).c_str(), "r");

@@ -38,7 +38,7 @@ struct GlobalFuncs {
         *decodeUTF8StringPtr;
     llvm::Value* getattr, *setattr, *delattr, *delitem, *delGlobal, *nonzero, *binop, *compare, *augbinop, *unboxedLen,
         *getitem, *getclsattr, *getGlobal, *setitem, *unaryop, *import, *importFrom, *importStar, *repr, *str,
-        *exceptionMatches, *yield, *getiterHelper, *hasnext;
+        *strOrUnicode, *exceptionMatches, *yield, *getiterHelper, *hasnext;
 
     llvm::Value* unpackIntoArray, *raiseAttributeError, *raiseAttributeErrorStr, *raiseNotIterableError,
         *raiseIndexErrorStr, *assertNameDefined, *assertFail, *assertFailDerefNameDefined;
@@ -49,7 +49,7 @@ struct GlobalFuncs {
     llvm::Value* exec;
     llvm::Value* boxedLocalsSet, *boxedLocalsGet, *boxedLocalsDel;
 
-    llvm::Value* __cxa_begin_catch, *__cxa_end_catch;
+    llvm::Value* __cxa_end_catch;
     llvm::Value* raise0, *raise3;
     llvm::Value* deopt;
 

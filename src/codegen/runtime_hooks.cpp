@@ -210,6 +210,7 @@ void initGlobalFuncs(GlobalState& g) {
     GET(importStar);
     GET(repr);
     GET(str);
+    GET(strOrUnicode);
     GET(exceptionMatches);
     GET(yield);
     GET(getiterHelper);
@@ -261,7 +262,6 @@ void initGlobalFuncs(GlobalState& g) {
     g.funcs.reoptCompiledFunc = addFunc((void*)reoptCompiledFunc, g.i8_ptr, g.i8_ptr);
     g.funcs.compilePartialFunc = addFunc((void*)compilePartialFunc, g.i8_ptr, g.i8_ptr);
 
-    GET(__cxa_begin_catch);
     g.funcs.__cxa_end_catch = addFunc((void*)__cxa_end_catch, g.void_);
     GET(raise0);
     GET(raise3);

@@ -62,10 +62,10 @@ extern "C" BoxedString* str(Box* obj);
 extern "C" BoxedString* repr(Box* obj);
 extern "C" BoxedString* reprOrNull(Box* obj); // similar to repr, but returns NULL on exception
 extern "C" BoxedString* strOrNull(Box* obj);  // similar to str, but returns NULL on exception
+extern "C" Box* strOrUnicode(Box* obj);
 extern "C" bool exceptionMatches(Box* obj, Box* cls);
 extern "C" BoxedInt* hash(Box* obj);
 extern "C" Box* abs_(Box* obj);
-Box* open(Box* arg1, Box* arg2);
 // extern "C" Box* chr(Box* arg);
 extern "C" Box* compare(Box*, Box*, int);
 extern "C" BoxedInt* len(Box* obj);
@@ -94,6 +94,7 @@ extern "C" Box* createBoxedIterWrapperIfNeeded(Box* o);
 extern "C" bool hasnext(Box* o);
 
 extern "C" void dump(void* p);
+extern "C" void dumpEx(void* p, int levels = 0);
 
 struct SetattrRewriteArgs;
 void setattrGeneric(Box* obj, const std::string& attr, Box* val, SetattrRewriteArgs* rewrite_args);

@@ -18,6 +18,8 @@
 #include <deque>
 #include <unordered_set>
 
+#include "llvm/ADT/SmallPtrSet.h"
+
 #include "analysis/fpc.h"
 #include "analysis/scoping_analysis.h"
 #include "codegen/codegen.h"
@@ -78,10 +80,10 @@ static BoxedClass* simpleCallSpeculation(AST_Call* node, CompilerType* rtn_type,
     return NULL;
 }
 
-typedef std::unordered_map<InternedString, CompilerType*> TypeMap;
-typedef std::unordered_map<CFGBlock*, TypeMap> AllTypeMap;
-typedef std::unordered_map<AST_expr*, CompilerType*> ExprTypeMap;
-typedef std::unordered_map<AST_expr*, BoxedClass*> TypeSpeculations;
+typedef llvm::DenseMap<InternedString, CompilerType*> TypeMap;
+typedef llvm::DenseMap<CFGBlock*, TypeMap> AllTypeMap;
+typedef llvm::DenseMap<AST_expr*, CompilerType*> ExprTypeMap;
+typedef llvm::DenseMap<AST_expr*, BoxedClass*> TypeSpeculations;
 class BasicBlockTypePropagator : public ExprVisitor, public StmtVisitor {
 private:
     static const bool EXPAND_UNNEEDED = true;
@@ -453,6 +455,14 @@ private:
 
     void* visit_slice(AST_Slice* node) override { return SLICE; }
 
+    void* visit_extslice(AST_ExtSlice* node) override {
+        std::vector<CompilerType*> elt_types;
+        for (auto* e : node->dims) {
+            elt_types.push_back(getType(e));
+        }
+        return makeTupleType(elt_types);
+    }
+
     void* visit_str(AST_Str* node) override {
         if (node->str_type == AST_Str::STR)
             return STR;
@@ -633,11 +643,12 @@ private:
     }
 
 public:
-    static void propagate(CFGBlock* block, const TypeMap& starting, TypeMap& ending, ExprTypeMap& expr_types,
-                          TypeSpeculations& type_speculations, TypeAnalysis::SpeculationLevel speculation,
-                          ScopeInfo* scope_info) {
-        ending.insert(starting.begin(), starting.end());
+    static TypeMap propagate(CFGBlock* block, const TypeMap& starting, ExprTypeMap& expr_types,
+                             TypeSpeculations& type_speculations, TypeAnalysis::SpeculationLevel speculation,
+                             ScopeInfo* scope_info) {
+        TypeMap ending = starting;
         BasicBlockTypePropagator(block, ending, expr_types, type_speculations, speculation, scope_info).run();
+        return ending;
     }
 };
 
@@ -703,14 +714,14 @@ public:
 
     static bool merge(const TypeMap& ending, TypeMap& next) {
         bool changed = false;
-        for (TypeMap::const_iterator it = ending.begin(); it != ending.end(); ++it) {
-            CompilerType*& prev = next[it->first];
-            changed = merge(it->second, prev) || changed;
+        for (auto&& entry : ending) {
+            CompilerType*& prev = next[entry.first];
+            changed = merge(entry.second, prev) || changed;
         }
         return changed;
     }
 
-    static PropagatingTypeAnalysis* doAnalysis(CFG* cfg, SpeculationLevel speculation, ScopeInfo* scope_info,
+    static PropagatingTypeAnalysis* doAnalysis(SpeculationLevel speculation, ScopeInfo* scope_info,
                                                TypeMap&& initial_types, CFGBlock* initial_block) {
         Timer _t("PropagatingTypeAnalysis::doAnalysis()");
 
@@ -718,8 +729,8 @@ public:
         ExprTypeMap expr_types;
         TypeSpeculations type_speculations;
 
-        std::unordered_set<CFGBlock*> in_queue;
-        std::priority_queue<CFGBlock*, std::vector<CFGBlock*>, CFGBlockMinIndex> queue;
+        llvm::SmallPtrSet<CFGBlock*, 32> in_queue;
+        std::priority_queue<CFGBlock*, llvm::SmallVector<CFGBlock*, 32>, CFGBlockMinIndex> queue;
 
         starting_types[initial_block] = std::move(initial_types);
         queue.push(initial_block);
@@ -727,13 +738,12 @@ public:
 
         int num_evaluations = 0;
         while (!queue.empty()) {
-            ASSERT(queue.size() == in_queue.size(), "%ld %ld", queue.size(), in_queue.size());
+            ASSERT(queue.size() == in_queue.size(), "%ld %d", queue.size(), in_queue.size());
             num_evaluations++;
             CFGBlock* block = queue.top();
             queue.pop();
             in_queue.erase(block);
 
-            TypeMap ending;
 
             if (VERBOSITY("types") >= 3) {
                 printf("processing types for block %d\n", block->idx);
@@ -747,8 +757,8 @@ public:
                 }
             }
 
-            BasicBlockTypePropagator::propagate(block, starting_types[block], ending, expr_types, type_speculations,
-                                                speculation, scope_info);
+            TypeMap ending = BasicBlockTypePropagator::propagate(block, starting_types[block], expr_types,
+                                                                 type_speculations, speculation, scope_info);
 
             if (VERBOSITY("types") >= 3) {
                 printf("before (after):\n");
@@ -775,15 +785,16 @@ public:
         }
 
         if (VERBOSITY("types")) {
-            printf("Type analysis: %ld BBs, %d evaluations = %.1f evaluations/block\n", cfg->blocks.size(),
-                   num_evaluations, 1.0 * num_evaluations / cfg->blocks.size());
+            printf("Type analysis: %d BBs, %d evaluations = %.1f evaluations/block\n", starting_types.size(),
+                   num_evaluations, 1.0 * num_evaluations / starting_types.size());
         }
 
         if (VERBOSITY("types") >= 3) {
-            for (CFGBlock* b : cfg->blocks) {
+            for (const auto& p : starting_types) {
+                auto b = p.first;
                 printf("Types at beginning of block %d:\n", b->idx);
 
-                TypeMap& starting = starting_types[b];
+                const TypeMap& starting = p.second;
                 for (const auto& p : starting) {
                     ASSERT(p.second, "%s", p.first.c_str());
                     printf("%s: %s\n", p.first.c_str(), p.second->debugName().c_str());
@@ -826,17 +837,17 @@ TypeAnalysis* doTypeAnalysis(CFG* cfg, const ParamNames& arg_names, const std::v
 
     assert(i == arg_types.size());
 
-    return PropagatingTypeAnalysis::doAnalysis(cfg, speculation, scope_info, std::move(initial_types),
+    return PropagatingTypeAnalysis::doAnalysis(speculation, scope_info, std::move(initial_types),
                                                cfg->getStartingBlock());
 }
 
-TypeAnalysis* doTypeAnalysis(CFG* cfg, const OSREntryDescriptor* entry_descriptor, EffortLevel effort,
+TypeAnalysis* doTypeAnalysis(const OSREntryDescriptor* entry_descriptor, EffortLevel effort,
                              TypeAnalysis::SpeculationLevel speculation, ScopeInfo* scope_info) {
     // if (effort == EffortLevel::INTERPRETED) {
     // return new NullTypeAnalysis();
     //}
     TypeMap initial_types(entry_descriptor->args.begin(), entry_descriptor->args.end());
-    return PropagatingTypeAnalysis::doAnalysis(cfg, speculation, scope_info, std::move(initial_types),
+    return PropagatingTypeAnalysis::doAnalysis(speculation, scope_info, std::move(initial_types),
                                                entry_descriptor->backedge->target);
 }
 }

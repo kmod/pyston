@@ -155,6 +155,7 @@ COMMON_CXXFLAGS += -fexceptions -fno-rtti
 COMMON_CXXFLAGS += -Wno-invalid-offsetof # allow the use of "offsetof", and we'll just have to make sure to only use it legally.
 COMMON_CXXFLAGS += -DENABLE_INTEL_JIT_EVENTS=$(ENABLE_INTEL_JIT_EVENTS)
 COMMON_CXXFLAGS += -I$(DEPS_DIR)/pypa-install/include
+COMMON_CXXFLAGS += -I$(DEPS_DIR)/lz4-install/include
 
 ifeq ($(ENABLE_VALGRIND),0)
 	COMMON_CXXFLAGS += -DNVALGRIND
@@ -170,6 +171,7 @@ COMMON_CXXFLAGS += -DDEFAULT_PYTHON_MAJOR_VERSION=$(PYTHON_MAJOR_VERSION) -DDEFA
 # Use our "custom linker" that calls gold if available
 COMMON_LDFLAGS := -B$(TOOLS_DIR)/build_system -L/usr/local/lib -lpthread -lm -lunwind -llzma -L$(DEPS_DIR)/gcc-4.8.2-install/lib64 -lreadline -lgmp -lssl -lcrypto -lsqlite3
 COMMON_LDFLAGS += $(DEPS_DIR)/pypa-install/lib/libpypa.a
+COMMON_LDFLAGS += $(DEPS_DIR)/lz4-install/lib/liblz4.a
 
 # Conditionally add libtinfo if available - otherwise nothing will be added
 COMMON_LDFLAGS += `pkg-config tinfo 2>/dev/null && pkg-config tinfo --libs || echo ""`
@@ -491,11 +493,12 @@ check:
 
 	$(PYTHON) $(TOOLS_DIR)/tester.py -R pyston_dbg -j$(TEST_THREADS) -k -a=-S $(TESTS_DIR) $(ARGS)
 	@# we pass -I to cpython tests & skip failing ones because they are sloooow otherwise
-	$(PYTHON) $(TOOLS_DIR)/tester.py -R pyston_dbg -j$(TEST_THREADS) -k -a=-S -a=-I --exit-code-only --skip-failing $(TEST_DIR)/cpython $(ARGS)
+	$(PYTHON) $(TOOLS_DIR)/tester.py -R pyston_dbg -j$(TEST_THREADS) -k -a=-S --exit-code-only --skip-failing $(TEST_DIR)/cpython $(ARGS)
+	$(PYTHON) $(TOOLS_DIR)/tester.py -R pyston_dbg -j$(TEST_THREADS) -k -a=-S --exit-code-only --skip-failing -t60 $(TEST_DIR)/integration $(ARGS)
 	$(PYTHON) $(TOOLS_DIR)/tester.py -R pyston_dbg -j$(TEST_THREADS) -k -a=-n -a=-x -a=-S $(TESTS_DIR) $(ARGS)
 	@# skip -O for dbg
 
-	$(MAKE) run_unittests
+	$(MAKE) run_unittests ARGS=
 
 	@# Building in gcc mode is helpful to find various compiler-specific warnings.
 	@# We've also discovered UB in our code from running in gcc mode, so try running it as well.
@@ -507,7 +510,8 @@ check:
 	@# since we can make different decisions about which internal functions to inline or not.
 	$(PYTHON) $(TOOLS_DIR)/tester.py -R pyston_release -j$(TEST_THREADS) -k -a=-S $(TESTS_DIR) $(ARGS)
 	@# we pass -I to cpython tests and skip failing ones because they are sloooow otherwise
-	$(PYTHON) $(TOOLS_DIR)/tester.py -R pyston_release -j$(TEST_THREADS) -k -a=-S -a=-I --exit-code-only --skip-failing $(TEST_DIR)/cpython $(ARGS)
+	$(PYTHON) $(TOOLS_DIR)/tester.py -R pyston_release -j$(TEST_THREADS) -k -a=-S --exit-code-only --skip-failing $(TEST_DIR)/cpython $(ARGS)
+	$(PYTHON) $(TOOLS_DIR)/tester.py -R pyston_release -j$(TEST_THREADS) -k -a=-S --exit-code-only --skip-failing -t60 $(TEST_DIR)/integration $(ARGS)
 	@# skip -n for dbg
 	$(PYTHON) $(TOOLS_DIR)/tester.py -R pyston_release -j$(TEST_THREADS) -k -a=-O -a=-x -a=-S $(TESTS_DIR) $(ARGS)
 
@@ -922,15 +926,24 @@ clean:
 
 # A helper function that lets me run subdirectory rules from the top level;
 # ex instead of saying "make tests/run_1", I can just write "make run_1"
+#
+# The target to ultimately be called must be prefixed with nosearch_, for example:
+#     nosearch_example_%: %.py
+#         echo $^
+#     $(call make_search,example_%)
+# This prevents us from searching recursively, which can result in a combinatorial explosion.
 define make_search
 $(eval \
-$1: $(TESTS_DIR)/$1 ;
-$1: $(TEST_DIR)/cpython/$1 ;
-$1: ./microbenchmarks/$1 ;
-$1: ./minibenchmarks/$1 ;
-$1: ./benchmarks/$1 ;
-$1: $(HOME)/pyston-perf/benchmarking/benchmark_suite/$1 ;
-$(patsubst %, $$1: %/$$1 ;,$(EXTRA_SEARCH_DIRS))
+.PHONY: $1 nosearch_$1
+$1: nosearch_$1
+$1: $(TESTS_DIR)/nosearch_$1 ;
+$1: $(TEST_DIR)/cpython/nosearch_$1 ;
+$1: $(TEST_DIR)/integration/nosearch_$1 ;
+$1: ./microbenchmarks/nosearch_$1 ;
+$1: ./minibenchmarks/nosearch_$1 ;
+$1: ./benchmarks/nosearch_$1 ;
+$1: $(HOME)/pyston-perf/benchmarking/benchmark_suite/nosearch_$1 ;
+$(patsubst %, $$1: %/nosearch_$$1 ;,$(EXTRA_SEARCH_DIRS))
 )
 endef
 
@@ -942,41 +955,42 @@ $(eval \
 check$1 test$1: $(PYTHON_EXE_DEPS) pyston$1 ext_pyston
 	$(PYTHON) $(TOOLS_DIR)/tester.py -R pyston$1 -j$(TEST_THREADS) -a=-S -k $(TESTS_DIR) $(ARGS)
 	@# we pass -I to cpython tests and skip failing ones because they are sloooow otherwise
-	$(PYTHON) $(TOOLS_DIR)/tester.py -R pyston$1 -j$(TEST_THREADS) -a=-S -a=-I -k --exit-code-only --skip-failing $(TEST_DIR)/cpython $(ARGS)
+	$(PYTHON) $(TOOLS_DIR)/tester.py -R pyston$1 -j$(TEST_THREADS) -a=-S -k --exit-code-only --skip-failing $(TEST_DIR)/cpython $(ARGS)
+	$(PYTHON) $(TOOLS_DIR)/tester.py -R pyston$1 -j$(TEST_THREADS) -k -a=-S --exit-code-only --skip-failing -t=60 $(TEST_DIR)/integration $(ARGS)
 	$(PYTHON) $(TOOLS_DIR)/tester.py -a=-x -R pyston$1 -j$(TEST_THREADS) -a=-n -a=-S -k $(TESTS_DIR) $(ARGS)
 	$(PYTHON) $(TOOLS_DIR)/tester.py -R pyston$1 -j$(TEST_THREADS) -a=-O -a=-S -k $(TESTS_DIR) $(ARGS)
 
 .PHONY: run$1 dbg$1
 run$1: pyston$1 $$(RUN_DEPS)
-	./pyston$1 $$(ARGS)
+	PYTHONPATH=test/test_extension ./pyston$1 $$(ARGS)
 dbg$1: pyston$1 $$(RUN_DEPS)
-	zsh -c 'ulimit -v $$(MAX_DBG_MEM_KB); $$(GDB) $$(GDB_CMDS) --args ./pyston$1 $$(ARGS)'
-run$1_%: %.py pyston$1 $$(RUN_DEPS)
-	$(VERB) zsh -c 'ulimit -v $$(MAX_MEM_KB); ulimit -d $$(MAX_MEM_KB); time ./pyston$1 $$(ARGS) $$<'
+	PYTHONPATH=test/test_extension zsh -c 'ulimit -v $$(MAX_DBG_MEM_KB); $$(GDB) $$(GDB_CMDS) --args ./pyston$1 $$(ARGS)'
+nosearch_run$1_%: %.py pyston$1 $$(RUN_DEPS)
+	$(VERB) PYTHONPATH=test/test_extension zsh -c 'ulimit -v $$(MAX_MEM_KB); ulimit -d $$(MAX_MEM_KB); time ./pyston$1 $$(ARGS) $$<'
 $$(call make_search,run$1_%)
-dbg$1_%: %.py pyston$1 $$(RUN_DEPS)
-	$(VERB) zsh -c 'ulimit -v $$(MAX_DBG_MEM_KB); $$(GDB) $$(GDB_CMDS) --args ./pyston$1 $$(ARGS) $$<'
+nosearch_dbg$1_%: %.py pyston$1 $$(RUN_DEPS)
+	$(VERB) PYTHONPATH=test/test_extension zsh -c 'ulimit -v $$(MAX_DBG_MEM_KB); $$(GDB) $$(GDB_CMDS) --args ./pyston$1 $$(ARGS) $$<'
 $$(call make_search,dbg$1_%)
 
 ifneq ($$(ENABLE_VALGRIND),0)
-memcheck$1_%: %.py pyston$1 $$(RUN_DEPS)
-	$$(VALGRIND) --tool=memcheck --leak-check=no --db-attach=yes ./pyston$1 $$(ARGS) $$<
+nosearch_memcheck$1_%: %.py pyston$1 $$(RUN_DEPS)
+	PYTHONPATH=test/test_extension $$(VALGRIND) --tool=memcheck --leak-check=no --db-attach=yes ./pyston$1 $$(ARGS) $$<
 $$(call make_search,memcheck$1_%)
-memcheck_gdb$1_%: %.py pyston$1 $$(RUN_DEPS)
-	set +e; $$(VALGRIND) -v -v -v -v -v --tool=memcheck --leak-check=no --track-origins=yes --vgdb=yes --vgdb-error=0 ./pyston$1 $$(ARGS) $$< & export PID=$$$$! ; \
+nosearch_memcheck_gdb$1_%: %.py pyston$1 $$(RUN_DEPS)
+	set +e; PYTHONPATH=test/test_extension $$(VALGRIND) -v -v -v -v -v --tool=memcheck --leak-check=no --track-origins=yes --vgdb=yes --vgdb-error=0 ./pyston$1 $$(ARGS) $$< & export PID=$$$$! ; \
 	$$(GDB) --ex "set confirm off" --ex "target remote | $$(DEPS_DIR)/valgrind-3.10.0-install/bin/vgdb" --ex "continue" --ex "bt" ./pyston$1; kill -9 $$$$PID
 $$(call make_search,memcheck_gdb$1_%)
-memleaks$1_%: %.py pyston$1 $$(RUN_DEPS)
-	$$(VALGRIND) --tool=memcheck --leak-check=full --leak-resolution=low --show-reachable=yes ./pyston$1 $$(ARGS) $$<
+nosearch_memleaks$1_%: %.py pyston$1 $$(RUN_DEPS)
+	PYTHONPATH=test/test_extension $$(VALGRIND) --tool=memcheck --leak-check=full --leak-resolution=low --show-reachable=yes ./pyston$1 $$(ARGS) $$<
 $$(call make_search,memleaks$1_%)
-cachegrind$1_%: %.py pyston$1 $$(RUN_DEPS)
-	$$(VALGRIND) --tool=cachegrind ./pyston$1 $$(ARGS) $$<
+nosearch_cachegrind$1_%: %.py pyston$1 $$(RUN_DEPS)
+	PYTHONPATH=test/test_extension $$(VALGRIND) --tool=cachegrind ./pyston$1 $$(ARGS) $$<
 $$(call make_search,cachegrind$1_%)
 endif
 
 .PHONY: perf$1_%
-perf$1_%: %.py pyston$1
-	perf record -g -- ./pyston$1 -q -p $$(ARGS) $$<
+nosearch_perf$1_%: %.py pyston$1
+	PYTHONPATH=test/test_extension perf record -g -- ./pyston$1 -q -p $$(ARGS) $$<
 	@$(MAKE) perf_report
 $$(call make_search,perf$1_%)
 
@@ -1007,16 +1021,16 @@ $(call make_target,_release)
 $(call make_target,_prof)
 $(call make_target,_gcc)
 
-runpy_% pyrun_%: %.py ext_python
+nosearch_runpy_% nosearch_pyrun_%: %.py ext_python
 	$(VERB) PYTHONPATH=test/test_extension/build/lib.linux-x86_64-2.7 zsh -c 'time python $<'
 $(call make_search,runpy_%)
 $(call make_search,pyrun_%)
 
-check_%: %.py ext_python ext_pyston
+nosearch_check_%: %.py ext_python ext_pyston
 	$(MAKE) check_dbg ARGS="$(patsubst %.py,%,$(notdir $<)) -K"
 $(call make_search,check_%)
 
-dbgpy_% pydbg_%: %.py ext_pythondbg
+nosearch_dbgpy_% nosearch_pydbg_%: %.py ext_pythondbg
 	export PYTHON_VERSION=$$(python2.7-dbg -V 2>&1 | awk '{print $$2}'); PYTHONPATH=test/test_extension/build/lib.linux-x86_64-2.7-pydebug $(GDB) --ex "dir $(DEPS_DIR)/python-src/python2.7-$$PYTHON_VERSION/debian" $(GDB_CMDS) --args python2.7-dbg $<
 $(call make_search,dbgpy_%)
 $(call make_search,pydbg_%)
@@ -1026,19 +1040,17 @@ kv:
 	ps aux | awk '/[v]algrind/ {print $$2}' | xargs kill -9; true
 
 # gprof-based profiling:
-.PHONY: prof_% profile_%
-prof_%: %.py pyston_prof
+nosearch_prof_%: %.py pyston_prof
 	zsh -c 'time ./pyston_prof $(ARGS) $<'
 	gprof ./pyston_prof gmon.out > $(patsubst %,%.out,$@)
 $(call make_search,prof_%)
-profile_%: %.py pyston_profile
+nosearch_profile_%: %.py pyston_profile
 	time ./pyston_profile -p $(ARGS) $<
 	gprof ./pyston_profile gmon.out > $(patsubst %,%.out,$@)
 $(call make_search,profile_%)
 
 # pprof-based profiling:
-.PHONY: pprof_% pprof_release_%
-pprof_%: %.py $(PYTHON_EXE_DEPS) pyston_pprof
+nosearch_pprof_%: %.py $(PYTHON_EXE_DEPS) pyston_pprof
 	CPUPROFILE_FREQUENCY=1000 CPUPROFILE=$@.out ./pyston_pprof -p $(ARGS) $<
 	pprof --raw pyston_pprof $@.out > $@_raw.out
 	$(PYTHON) codegen/profiling/process_pprof.py $@_raw.out pprof.jit > $@_processed.out
@@ -1047,7 +1059,7 @@ pprof_%: %.py $(PYTHON_EXE_DEPS) pyston_pprof
 $(call make_search,pprof_%)
 
 # oprofile-based profiling:
-.PHONY: oprof_% oprof_collect_% opreport
+.PHONY: oprof_collect_% opreport
 oprof_collect_%: %.py pyston_oprof
 	sudo opcontrol --image pyston_oprof
 	# sudo opcontrol --event CPU_CLK_UNHALTED:28000
@@ -1060,7 +1072,7 @@ oprof_collect_%: %.py pyston_oprof
 	sudo opcontrol --image all --event default --cpu-buffer-size=0 --buffer-size=0 --buffer-watershed=0
 	sudo opcontrol --deinit
 	sudo opcontrol --init
-oprof_%: oprof_collect_%
+nosearch_oprof_%: oprof_collect_%
 	$(MAKE) opreport
 $(call make_search,oprof_%)
 opreport:
@@ -1068,10 +1080,10 @@ opreport:
 	opreport -l -t 0.2 -a pyston_oprof
 	# opreport lib-image:pyston_oprof -l -t 0.2 -a | head -n 25
 
-.PHONY: oprofcg_% oprof_collectcg_% opreportcg
+.PHONY: oprof_collectcg_% opreportcg
 oprof_collectcg_%: %.py pyston_oprof
 	operf -g -e CPU_CLK_UNHALTED:90000 ./pyston_oprof -p $(ARGS) $<
-oprofcg_%: oprof_collectcg_%
+nosearch_oprofcg_%: oprof_collectcg_%
 	$(MAKE) opreportcg
 $(call make_search,oprofcg_%)
 opreportcg:
@@ -1170,6 +1182,27 @@ $(FROM_CPYTHON_SRCS:.c=.prof.o): %.prof.o: %.c $(BUILD_SYSTEM_DEPS)
 	$(ECHO) Compiling C file to $@
 	$(VERB) $(CC_PROFILE) $(EXT_CFLAGS_PROFILE) -c $< -o $@ -g -MMD -MP -MF $(patsubst %.o,%.d,$@)
 
-# These are necessary until we support unicode:
-../from_cpython/Modules/_sre.o: EXT_CFLAGS += -Wno-sometimes-uninitialized
-../from_cpython/Modules/_sre.release.o: EXT_CFLAGS += -Wno-sometimes-uninitialized
+
+
+
+# TESTING:
+
+_plugins/clang_capi.so: plugins/clang_capi.cpp $(BUILD_SYSTEM_DEPS)
+	@# $(CXX) $< -o $@ -c -I/usr/lib/llvm-3.5/include -std=c++11 -D__STDC_CONSTANT_MACROS -D__STDC_LIMIT_MACROS
+	$(CXX) $< -o $@ -std=c++11 $(LLVM_CXXFLAGS) -I$(LLVM_SRC)/tools/clang/include -I$(LLVM_BUILD)/tools/clang/include -shared
+
+plugins/clang_capi.o: plugins/clang_capi.cpp $(BUILD_SYSTEM_DEPS)
+	@# $(CXX) $< -o $@ -c -I/usr/lib/llvm-3.5/include -std=c++11 -D__STDC_CONSTANT_MACROS -D__STDC_LIMIT_MACROS
+	$(CXX) $< -o $@ -std=c++11 $(LLVM_CXXFLAGS) -O0 -I$(LLVM_SRC)/tools/clang/include -I$(LLVM_BUILD)/tools/clang/include -c
+plugins/clang_capi: plugins/clang_capi.o $(BUILD_SYSTEM_DEPS)
+	@# $(CXX) $< -o $@ -c -I/usr/lib/llvm-3.5/include -std=c++11 -D__STDC_CONSTANT_MACROS -D__STDC_LIMIT_MACROS
+	$(CXX) $< -o $@ -L$(LLVM_BUILD)/Release/lib -lclangASTMatchers -lclangRewrite -lclangFrontend -lclangDriver -lclangTooling -lclangParse -lclangSema -lclangAnalysis -lclangAST -lclangEdit -lclangLex -lclangBasic -lclangSerialization $(shell $(LLVM_BUILD)/Release+Asserts/bin/llvm-config --ldflags --system-libs --libs all)
+plugins/clang_capi.so: plugins/clang_capi.o $(BUILD_SYSTEM_DEPS)
+	@# $(CXX) $< -o $@ -c -I/usr/lib/llvm-3.5/include -std=c++11 -D__STDC_CONSTANT_MACROS -D__STDC_LIMIT_MACROS
+	$(CXX) $< -o $@ -shared
+.PHONY: plugin_test
+plugin_test: plugins/clang_capi.so
+	$(CLANG_CXX) -Xclang -load -Xclang plugins/clang_capi.so -Xclang -add-plugin -Xclang print-fns test/test.cpp -c -S -o -
+.PHONY: tool_test
+tool_test: plugins/clang_capi
+	plugins/clang_capi test/test.cpp --

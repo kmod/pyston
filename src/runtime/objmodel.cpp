@@ -1579,7 +1579,6 @@ Box* getattrInternalGeneric(Box* obj, const std::string& attr, GetattrRewriteArg
         return getattrInternalEx(static_cast<BoxedInstanceMethod*>(obj)->func, attr, NULL, cls_only, for_call,
                                  bind_obj_out, NULL);
     }
-    // Finally, check __getattr__
 
     if (rewrite_args) {
         rewrite_args->out_success = true;
@@ -1961,7 +1960,7 @@ extern "C" bool nonzero(Box* obj) {
         ASSERT(isUserDefined(obj->cls) || obj->cls == classobj_cls || obj->cls == type_cls
                    || isSubclass(obj->cls, Exception) || obj->cls == file_cls || obj->cls == traceback_cls
                    || obj->cls == instancemethod_cls || obj->cls == module_cls || obj->cls == capifunc_cls
-                   || obj->cls == builtin_function_or_method_cls,
+                   || obj->cls == builtin_function_or_method_cls || obj->cls == method_cls,
                "%s.__nonzero__", getTypeName(obj)); // TODO
 
         // TODO should rewrite these?
@@ -2002,6 +2001,14 @@ extern "C" BoxedString* str(Box* obj) {
         raiseExcHelper(TypeError, "__str__ returned non-string (type %s)", obj->cls->tp_name);
     }
     return static_cast<BoxedString*>(obj);
+}
+
+extern "C" Box* strOrUnicode(Box* obj) {
+    // Like str, but returns unicode objects unchanged.
+    if (obj->cls == unicode_cls) {
+        return obj;
+    }
+    return str(obj);
 }
 
 extern "C" BoxedString* repr(Box* obj) {
@@ -2152,7 +2159,7 @@ extern "C" i64 unboxedLen(Box* obj) {
     return rtn;
 }
 
-extern "C" void dump(void* p) {
+extern "C" void dumpEx(void* p, int levels) {
     printf("\n");
     printf("Raw address: %p\n", p);
 
@@ -2225,7 +2232,32 @@ extern "C" void dump(void* p) {
         }
 
         if (isSubclass(b->cls, tuple_cls)) {
-            printf("%ld elements\n", static_cast<BoxedTuple*>(b)->size());
+            BoxedTuple* t = static_cast<BoxedTuple*>(b);
+            printf("%ld elements\n", t->size());
+
+            if (levels > 0) {
+                int i = 0;
+                for (auto e : *t) {
+                    printf("\nElement %d:", i);
+                    i++;
+                    dumpEx(e, levels - 1);
+                }
+            }
+        }
+
+        if (isSubclass(b->cls, dict_cls)) {
+            BoxedDict* d = static_cast<BoxedDict*>(b);
+            printf("%ld elements\n", d->d.size());
+
+            if (levels > 0) {
+                int i = 0;
+                for (auto t : d->d) {
+                    printf("\nKey:");
+                    dumpEx(t.first, levels - 1);
+                    printf("Value:");
+                    dumpEx(t.second, levels - 1);
+                }
+            }
         }
 
         if (isSubclass(b->cls, int_cls)) {
@@ -2259,6 +2291,10 @@ extern "C" void dump(void* p) {
     }
 
     RELEASE_ASSERT(0, "%d", (int)al->kind_id);
+}
+
+extern "C" void dump(void* p) {
+    dumpEx(p, 0);
 }
 
 // For rewriting purposes, this function assumes that nargs will be constant.
@@ -2433,7 +2469,7 @@ extern "C" Box* callattrInternal(Box* obj, const std::string* attr, LookupScope 
 
 extern "C" Box* callattr(Box* obj, const std::string* attr, CallattrFlags flags, ArgPassSpec argspec, Box* arg1,
                          Box* arg2, Box* arg3, Box** args, const std::vector<const std::string*>* keyword_names) {
-    assert(gc::isValidGCObject(obj));
+    ASSERT(gc::isValidGCObject(obj), "%p", obj);
 
     int npassed_args = argspec.totalPassed();
 
@@ -4373,11 +4409,7 @@ extern "C" Box* getGlobal(Box* globals, const std::string* name) {
 }
 
 extern "C" Box* importFrom(Box* _m, const std::string* name) {
-    assert(isSubclass(_m->cls, module_cls));
-
-    BoxedModule* m = static_cast<BoxedModule*>(_m);
-
-    Box* r = getattrInternal(m, *name, NULL);
+    Box* r = getattrInternal(_m, *name, NULL);
     if (r)
         return r;
 
@@ -4389,7 +4421,7 @@ extern "C" Box* importStar(Box* _from_module, BoxedModule* to_module) {
     // it looks like mostly a matter of changing the getattr calls to getitem.
     RELEASE_ASSERT(getGlobals() == to_module, "importStar doesn't support custom globals yet");
 
-    assert(_from_module->cls == module_cls);
+    ASSERT(isSubclass(_from_module->cls, module_cls), "%s", _from_module->cls->tp_name);
     BoxedModule* from_module = static_cast<BoxedModule*>(_from_module);
 
     Box* all = from_module->getattr(all_str);

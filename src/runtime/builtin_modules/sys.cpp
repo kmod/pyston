@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <langinfo.h>
 #include <sstream>
 
 #include "llvm/Support/FileSystem.h"
@@ -97,6 +98,22 @@ Box* getSysStdout() {
     Box* sys_stdout = sys_module->getattr("stdout");
     RELEASE_ASSERT(sys_stdout, "lost sys.stdout??");
     return sys_stdout;
+}
+
+Box* sysGetFrame(Box* val) {
+    int depth = 0;
+    if (val) {
+        if (!isSubclass(val->cls, int_cls)) {
+            raiseExcHelper(TypeError, "TypeError: an integer is required");
+        }
+        depth = static_cast<BoxedInt*>(val)->n;
+    }
+
+    Box* frame = getFrame(depth);
+    if (!frame) {
+        raiseExcHelper(ValueError, "call stack is not deep enough");
+    }
+    return frame;
 }
 
 Box* sysGetDefaultEncoding() {
@@ -190,7 +207,7 @@ void prependToSysPath(const std::string& path) {
 static BoxedClass* sys_flags_cls;
 class BoxedSysFlags : public Box {
 public:
-    Box* division_warning, *bytes_warning, *no_user_site;
+    Box* division_warning, *bytes_warning, *no_user_site, *optimize;
 
     BoxedSysFlags() {
         auto zero = boxInt(0);
@@ -198,6 +215,7 @@ public:
         division_warning = zero;
         bytes_warning = zero;
         no_user_site = zero;
+        optimize = zero;
     }
 
     DEFAULT_CLASS(sys_flags_cls);
@@ -210,6 +228,7 @@ public:
         v->visit(self->division_warning);
         v->visit(self->bytes_warning);
         v->visit(self->no_user_site);
+        v->visit(self->optimize);
     }
 
     static Box* __new__(Box* cls, Box* args, Box* kwargs) {
@@ -229,6 +248,119 @@ static bool isLittleEndian() {
     unsigned long number = 1;
     char* s = (char*)&number;
     return s[0] != 0;
+}
+
+void setEncodingAndErrors() {
+    // Adapted from pythonrun.c in CPython, with modifications for Pyston.
+
+    char* p;
+    char* icodeset = nullptr;
+    char* codeset = nullptr;
+    char* errors = nullptr;
+    int free_codeset = 0;
+    int overridden = 0;
+    PyObject* sys_stream, *sys_isatty;
+    char* saved_locale, *loc_codeset;
+
+    if ((p = Py_GETENV("PYTHONIOENCODING")) && *p != '\0') {
+        p = icodeset = codeset = strdup(p);
+        free_codeset = 1;
+        errors = strchr(p, ':');
+        if (errors) {
+            *errors = '\0';
+            errors++;
+        }
+        overridden = 1;
+    }
+
+#if defined(Py_USING_UNICODE) && defined(HAVE_LANGINFO_H) && defined(CODESET)
+    /* On Unix, set the file system encoding according to the
+       user's preference, if the CODESET names a well-known
+       Python codec, and Py_FileSystemDefaultEncoding isn't
+       initialized by other means. Also set the encoding of
+       stdin and stdout if these are terminals, unless overridden.  */
+
+    if (!overridden || !Py_FileSystemDefaultEncoding) {
+        saved_locale = strdup(setlocale(LC_CTYPE, NULL));
+        setlocale(LC_CTYPE, "");
+        loc_codeset = nl_langinfo(CODESET);
+        if (loc_codeset && *loc_codeset) {
+            PyObject* enc = PyCodec_Encoder(loc_codeset);
+            if (enc) {
+                loc_codeset = strdup(loc_codeset);
+                Py_DECREF(enc);
+            } else {
+                if (PyErr_ExceptionMatches(PyExc_LookupError)) {
+                    PyErr_Clear();
+                    loc_codeset = NULL;
+                } else {
+                    PyErr_Print();
+                    exit(1);
+                }
+            }
+        } else
+            loc_codeset = NULL;
+        setlocale(LC_CTYPE, saved_locale);
+        free(saved_locale);
+
+        if (!overridden) {
+            codeset = icodeset = loc_codeset;
+            free_codeset = 1;
+        }
+
+        /* Initialize Py_FileSystemDefaultEncoding from
+           locale even if PYTHONIOENCODING is set. */
+        if (!Py_FileSystemDefaultEncoding) {
+            Py_FileSystemDefaultEncoding = loc_codeset;
+            if (!overridden)
+                free_codeset = 0;
+        }
+    }
+#endif
+
+#ifdef MS_WINDOWS
+    if (!overridden) {
+        icodeset = ibuf;
+        codeset = buf;
+        sprintf(ibuf, "cp%d", GetConsoleCP());
+        sprintf(buf, "cp%d", GetConsoleOutputCP());
+    }
+#endif
+
+    if (codeset) {
+        sys_stream = PySys_GetObject("stdin");
+        sys_isatty = PyObject_CallMethod(sys_stream, "isatty", "");
+        if (!sys_isatty)
+            PyErr_Clear();
+        if ((overridden || (sys_isatty && PyObject_IsTrue(sys_isatty))) && PyFile_Check(sys_stream)) {
+            if (!PyFile_SetEncodingAndErrors(sys_stream, icodeset, errors))
+                Py_FatalError("Cannot set codeset of stdin");
+        }
+        Py_XDECREF(sys_isatty);
+
+        sys_stream = PySys_GetObject("stdout");
+        sys_isatty = PyObject_CallMethod(sys_stream, "isatty", "");
+        if (!sys_isatty)
+            PyErr_Clear();
+        if ((overridden || (sys_isatty && PyObject_IsTrue(sys_isatty))) && PyFile_Check(sys_stream)) {
+            if (!PyFile_SetEncodingAndErrors(sys_stream, codeset, errors))
+                Py_FatalError("Cannot set codeset of stdout");
+        }
+        Py_XDECREF(sys_isatty);
+
+        sys_stream = PySys_GetObject("stderr");
+        sys_isatty = PyObject_CallMethod(sys_stream, "isatty", "");
+        if (!sys_isatty)
+            PyErr_Clear();
+        if ((overridden || (sys_isatty && PyObject_IsTrue(sys_isatty))) && PyFile_Check(sys_stream)) {
+            if (!PyFile_SetEncodingAndErrors(sys_stream, codeset, errors))
+                Py_FatalError("Cannot set codeset of stderr");
+        }
+        Py_XDECREF(sys_isatty);
+
+        if (free_codeset)
+            free(codeset);
+    }
 }
 
 extern "C" const char* Py_GetPlatform() noexcept {
@@ -262,6 +394,9 @@ void setupSys() {
     sys_module->giveAttr("stdout", new BoxedFile(stdout, "<stdout>", "w"));
     sys_module->giveAttr("stdin", new BoxedFile(stdin, "<stdin>", "r"));
     sys_module->giveAttr("stderr", new BoxedFile(stderr, "<stderr>", "w"));
+    sys_module->giveAttr("__stdout__", sys_module->getattr("stdout"));
+    sys_module->giveAttr("__stdin__", sys_module->getattr("stdin"));
+    sys_module->giveAttr("__stderr__", sys_module->getattr("stderr"));
 
     sys_module->giveAttr(
         "exc_info", new BoxedBuiltinFunctionOrMethod(boxRTFunction((void*)sysExcInfo, BOXED_TUPLE, 0), "exc_info"));
@@ -281,6 +416,8 @@ void setupSys() {
     main_fn = llvm::sys::fs::getMainExecutable(NULL, NULL);
     sys_module->giveAttr("executable", boxString(main_fn.str()));
 
+    sys_module->giveAttr("_getframe",
+                         new BoxedFunction(boxRTFunction((void*)sysGetFrame, UNKNOWN, 1, 1, false, false), { NULL }));
     sys_module->giveAttr(
         "getdefaultencoding",
         new BoxedBuiltinFunctionOrMethod(boxRTFunction((void*)sysGetDefaultEncoding, STR, 0), "getdefaultencoding"));
@@ -292,6 +429,9 @@ void setupSys() {
     sys_module->giveAttr("meta_path", new BoxedList());
     sys_module->giveAttr("path_hooks", new BoxedList());
     sys_module->giveAttr("path_importer_cache", new BoxedDict());
+
+    // As we don't support compile() etc yet force 'dont_write_bytecode' to true.
+    sys_module->giveAttr("dont_write_bytecode", True);
 
     sys_module->giveAttr("prefix", boxStrConstant(Py_GetPrefix()));
     sys_module->giveAttr("exec_prefix", boxStrConstant(Py_GetExecPrefix()));
@@ -323,6 +463,7 @@ void setupSys() {
     ADD(division_warning);
     ADD(bytes_warning);
     ADD(no_user_site);
+    ADD(optimize);
 #undef ADD
 
     sys_flags_cls->tp_mro = BoxedTuple::create({ sys_flags_cls, object_cls });

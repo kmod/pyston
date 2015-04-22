@@ -159,7 +159,8 @@ extern "C" void abort() {
 
     // In case something calls abort down the line:
     static bool recursive = false;
-    if (!recursive) {
+    // If object_cls is NULL, then we somehow died early on, and won't be able to display a traceback.
+    if (!recursive && object_cls) {
         recursive = true;
 
         fprintf(stderr, "Someone called abort!\n");
@@ -182,6 +183,12 @@ extern "C" void abort() {
         alarm(0);
     }
 
+    if (PAUSE_AT_ABORT) {
+        printf("PID %d about to call libc abort; pausing for a debugger...\n", getpid());
+        while (true) {
+            sleep(1);
+        }
+    }
     libc_abort();
     __builtin_unreachable();
 }

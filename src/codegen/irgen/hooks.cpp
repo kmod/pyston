@@ -313,7 +313,7 @@ void compileAndRunModule(AST_Module* m, BoxedModule* bm) {
         RELEASE_ASSERT(fn, "");
         bm->future_flags = getFutureFlags(m, fn);
 
-        ScopingAnalysis* scoping = new ScopingAnalysis(m);
+        ScopingAnalysis* scoping = new ScopingAnalysis(m, true);
 
         std::unique_ptr<SourceInfo> si(new SourceInfo(bm, scoping, m, m->body, fn));
         bm->setattr("__doc__", si->getDocString(), NULL);
@@ -353,15 +353,14 @@ Box* evalOrExec(CLFunction* cl, Box* globals, Box* boxedLocals) {
     return astInterpretFunctionEval(cf, globals, boxedLocals);
 }
 
-template <typename AST_Type>
-CLFunction* compileForEvalOrExec(AST_Type* source, std::vector<AST_stmt*>& body, std::string fn) {
+CLFunction* compileForEvalOrExec(AST* source, std::vector<AST_stmt*> body, std::string fn) {
     LOCK_REGION(codegen_rwlock.asWrite());
 
     Timer _t("for evalOrExec()");
 
     ScopingAnalysis* scoping = new ScopingAnalysis(source, false);
 
-    std::unique_ptr<SourceInfo> si(new SourceInfo(getCurrentModule(), scoping, source, body, std::move(fn)));
+    std::unique_ptr<SourceInfo> si(new SourceInfo(getCurrentModule(), scoping, source, std::move(body), std::move(fn)));
     CLFunction* cl_f = new CLFunction(0, 0, false, false, std::move(si));
 
     return cl_f;
@@ -406,7 +405,7 @@ static CLFunction* compileEval(llvm::StringRef source, llvm::StringRef fn) {
     stmt->value = parsedExpr->body;
     std::vector<AST_stmt*> body = { stmt };
 
-    return compileForEvalOrExec(parsedExpr, body, fn);
+    return compileForEvalOrExec(parsedExpr, std::move(body), fn);
 }
 
 Box* compile(Box* source, Box* fn, Box* type, Box** _args) {

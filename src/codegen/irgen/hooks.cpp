@@ -381,9 +381,11 @@ static CLFunction* compileExec(llvm::StringRef source, llvm::StringRef fn) {
 
 Box* compile(Box* source, Box* fn, Box* type, Box** _args) {
     Box* flags = _args[0];
-    Box* dont_inherit = _args[0];
-    RELEASE_ASSERT(flags == boxInt(0), "");
+    Box* dont_inherit = _args[1];
     RELEASE_ASSERT(dont_inherit == boxInt(0), "");
+
+    RELEASE_ASSERT(flags->cls == int_cls, "");
+    int64_t iflags = static_cast<BoxedInt*>(flags)->n;
 
     // source is allowed to be an AST, unicode, or anything that supports the buffer protocol
     if (source->cls == unicode_cls) {
@@ -413,14 +415,21 @@ Box* compile(Box* source, Box* fn, Box* type, Box** _args) {
     RELEASE_ASSERT(isSubclass(source->cls, str_cls), "");
     llvm::StringRef source_str = static_cast<BoxedString*>(source)->s;
 
+    if (iflags & ~(/*PyCF_MASK | PyCF_MASK_OBSOLETE | PyCF_DONT_IMPLY_DEDENT | */ PyCF_ONLY_AST)) {
+        raiseExcHelper(ValueError, "compile(): unrecognised flags");
+    }
+
     CLFunction* cl;
     if (type_str == "exec") {
+        RELEASE_ASSERT(iflags == 0, "");
         cl = compileExec(source_str, filename_str);
     } else if (type_str == "eval") {
         fatalOrError(NotImplemented, "unimplemented");
+        RELEASE_ASSERT(iflags == 0, "");
         throwCAPIException();
     } else if (type_str == "single") {
         fatalOrError(NotImplemented, "unimplemented");
+        RELEASE_ASSERT(iflags == 0, "");
         throwCAPIException();
     } else {
         raiseExcHelper(ValueError, "compile() arg 3 must be 'exec', 'eval' or 'single'");

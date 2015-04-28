@@ -87,7 +87,7 @@ def parse_marker(marker):
 
 def compile_marker(parsed_marker):
     return _builtin_compile(parsed_marker, '<environment marker>', 'eval',
-                   dont_inherit=True)
+                   )
 
 _cache = weakref.WeakValueDictionary()
 

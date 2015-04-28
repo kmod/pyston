@@ -1,5 +1,9 @@
 import ast
 
+print type(ast.parse("print 1"))
+print type(ast.parse("print 1", "t.py", "exec"))
+print type(ast.parse("1", "t.py", "eval"))
+
 c = compile(ast.parse("print 1", "t.py", "exec"), "u.py", "exec")
 print c.co_filename
 exec c
@@ -11,4 +15,3 @@ except Exception as e:
 
 c = compile(ast.parse("print 2", "t.py", "exec"), "u.py", "exec")
 print eval(c)
-

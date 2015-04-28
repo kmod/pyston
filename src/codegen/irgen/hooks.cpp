@@ -366,19 +366,22 @@ CLFunction* compileForEvalOrExec(AST* source, std::vector<AST_stmt*> body, std::
     return cl_f;
 }
 
-static CLFunction* compileExec(llvm::StringRef source, llvm::StringRef fn) {
+static AST_Suite* parseExec(llvm::StringRef source) {
     // TODO error message if parse fails or if it isn't an expr
     // TODO should have a cleaner interface that can parse the Expression directly
     // TODO this memory leaks
     const char* code = source.data();
     AST_Module* parsedModule = parse_string(code);
     AST_Suite* parsedSuite = new AST_Suite(std::move(parsedModule->interned_strings));
-    parsedSuite->body = parsedModule->body;
+    parsedSuite->body = std::move(parsedModule->body);
+    return parsedSuite;
+}
 
+static CLFunction* compileExec(AST_Suite* parsedSuite, llvm::StringRef fn) {
     return compileForEvalOrExec(parsedSuite, parsedSuite->body, fn);
 }
 
-static CLFunction* compileEval(llvm::StringRef source, llvm::StringRef fn) {
+static AST_Expression* parseEval(llvm::StringRef source) {
     const char* code = source.data();
 
     // TODO error message if parse fails or if it isn't an expr
@@ -398,7 +401,10 @@ static CLFunction* compileEval(llvm::StringRef source, llvm::StringRef fn) {
     RELEASE_ASSERT(parsedModule->body[0]->type == AST_TYPE::Expr, "");
     AST_Expression* parsedExpr = new AST_Expression(std::move(parsedModule->interned_strings));
     parsedExpr->body = static_cast<AST_Expr*>(parsedModule->body[0])->value;
+    return parsedExpr;
+}
 
+static CLFunction* compileEval(AST_Expression* parsedExpr, llvm::StringRef fn) {
     // We need body (list of statements) to compile.
     // Obtain this by simply making a single statement which contains the expression.
     AST_Return* stmt = new AST_Return();
@@ -441,23 +447,48 @@ Box* compile(Box* source, Box* fn, Box* type, Box** _args) {
     llvm::StringRef filename_str = static_cast<BoxedString*>(fn)->s;
     llvm::StringRef type_str = static_cast<BoxedString*>(type)->s;
 
-    RELEASE_ASSERT(isSubclass(source->cls, str_cls), "");
-    llvm::StringRef source_str = static_cast<BoxedString*>(source)->s;
-
     if (iflags & ~(/*PyCF_MASK | PyCF_MASK_OBSOLETE | PyCF_DONT_IMPLY_DEDENT | */ PyCF_ONLY_AST)) {
         raiseExcHelper(ValueError, "compile(): unrecognised flags");
     }
 
+    bool only_ast = (bool)(iflags & PyCF_ONLY_AST);
+    iflags &= ~PyCF_ONLY_AST;
+    RELEASE_ASSERT(iflags == 0, "");
+
+    AST* parsed;
+
+    if (PyAST_Check(source)) {
+        parsed = unboxAst(source);
+    } else {
+        RELEASE_ASSERT(isSubclass(source->cls, str_cls), "");
+        llvm::StringRef source_str = static_cast<BoxedString*>(source)->s;
+
+        if (type_str == "exec") {
+            parsed = parseExec(source_str);
+        } else if (type_str == "eval") {
+            parsed = parseEval(source_str);
+        } else if (type_str == "single") {
+            fatalOrError(NotImplemented, "unimplemented");
+            throwCAPIException();
+        } else {
+            raiseExcHelper(ValueError, "compile() arg 3 must be 'exec', 'eval' or 'single'");
+        }
+    }
+
+    if (only_ast)
+        return boxAst(parsed);
+
     CLFunction* cl;
     if (type_str == "exec") {
-        RELEASE_ASSERT(iflags == 0, "");
-        cl = compileExec(source_str, filename_str);
+        if (parsed->type != AST_TYPE::Suite)
+            raiseExcHelper(TypeError, "expected Suite node, got %s", boxAst(parsed)->cls->tp_name);
+        cl = compileExec(static_cast<AST_Suite*>(parsed), filename_str);
     } else if (type_str == "eval") {
-        RELEASE_ASSERT(iflags == 0, "");
-        cl = compileEval(source_str, filename_str);
+        if (parsed->type != AST_TYPE::Expression)
+            raiseExcHelper(TypeError, "expected Expression node, got %s", boxAst(parsed)->cls->tp_name);
+        cl = compileEval(static_cast<AST_Expression*>(parsed), filename_str);
     } else if (type_str == "single") {
         fatalOrError(NotImplemented, "unimplemented");
-        RELEASE_ASSERT(iflags == 0, "");
         throwCAPIException();
     } else {
         raiseExcHelper(ValueError, "compile() arg 3 must be 'exec', 'eval' or 'single'");
@@ -499,7 +530,8 @@ Box* eval(Box* boxedCode, Box* globals, Box* locals) {
 
     CLFunction* cl;
     if (boxedCode->cls == str_cls) {
-        cl = compileExec(static_cast<BoxedString*>(boxedCode)->s, "<string>");
+        AST_Expression* parsed = parseEval(static_cast<BoxedString*>(boxedCode)->s);
+        cl = compileEval(parsed, "<string>");
     } else if (boxedCode->cls == code_cls) {
         cl = clfunctionFromCode(boxedCode);
     } else {
@@ -562,7 +594,8 @@ Box* exec(Box* boxedCode, Box* globals, Box* locals) {
 
     CLFunction* cl;
     if (boxedCode->cls == str_cls) {
-        cl = compileExec(static_cast<BoxedString*>(boxedCode)->s, "<string>");
+        AST_Suite* parsed = parseExec(static_cast<BoxedString*>(boxedCode)->s);
+        cl = compileExec(parsed, "<string>");
     } else if (boxedCode->cls == code_cls) {
         cl = clfunctionFromCode(boxedCode);
     } else {

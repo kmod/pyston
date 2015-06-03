@@ -1340,6 +1340,20 @@ Box* getattrInternalEx(Box* obj, llvm::StringRef attr, GetattrRewriteArgs* rewri
             Box* r = obj->cls->tp_getattro(obj, boxString(attr));
             if (!r)
                 throwCAPIException();
+
+            if (rewrite_args) {
+                static StatCounter num_rooted_attrs("num_rooted_attrs");
+                num_rooted_attrs.log();
+
+                rewrite_args->obj->getAttr(offsetof(Box, cls))
+                    ->addAttrGuard(offsetof(BoxedClass, tp_getattro), (uint64_t)obj->cls->tp_getattro);
+                auto r_box = rewrite_args->rewriter->loadConst((int64_t)PyGC_AddRoot(boxString(attr)));
+                auto r_rtn = rewrite_args->rewriter->call(true, (void*)obj->cls->tp_getattro, rewrite_args->obj, r_box);
+                rewrite_args->rewriter->call(true, (void*)checkAndThrowCAPIException);
+
+                rewrite_args->out_rtn = r_rtn;
+                rewrite_args->out_success = true;
+            }
             return r;
         }
 

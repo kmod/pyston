@@ -558,7 +558,7 @@ Value ASTInterpreter::visit_jump(AST_Jump* node) {
                 arg_array.push_back(it.second);
             }
 
-            STAT_TIMER(t0, "us_timer_astinterpreter_jump_osrexit");
+            STAT_TIMER(t0, "us_timer_unknown");
             CompiledFunction* partial_func = compilePartialFuncInternal(&exit);
             auto arg_tuple = getTupleFromArgsArray(&arg_array[0], arg_array.size());
             Box* r = partial_func->call(std::get<0>(arg_tuple), std::get<1>(arg_tuple), std::get<2>(arg_tuple),

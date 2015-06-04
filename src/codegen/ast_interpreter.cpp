@@ -72,7 +72,7 @@ class ASTInterpreter {
 public:
     typedef ContiguousMap<InternedString, Box*> SymMap;
 
-    ASTInterpreter(CompiledFunction* compiled_function);
+    ASTInterpreter(CLFunction* clfunc);
 
     void initArguments(int nargs, BoxedClosure* closure, BoxedGenerator* generator, Box* arg1, Box* arg2, Box* arg3,
                        Box** args);
@@ -133,7 +133,7 @@ private:
     Value visit_jump(AST_Jump* node);
     Value visit_langPrimitive(AST_LangPrimitive* node);
 
-    CompiledFunction* compiled_func;
+    CLFunction* clfunc;
     SourceInfo* source_info;
     ScopeInfo* scope_info;
     PhiAnalysis* phis;
@@ -161,7 +161,7 @@ public:
         return globals;
     }
 
-    CompiledFunction* getCF() { return compiled_func; }
+    CLFunction* getCL() { return clfunc; }
     FrameInfo* getFrameInfo() { return &frame_info; }
     BoxedClosure* getPassedClosure() { return passed_closure; }
     const SymMap& getSymbolTable() { return sym_table; }
@@ -228,9 +228,9 @@ void ASTInterpreter::gcVisit(GCVisitor* visitor) {
     visitor->visit(globals);
 }
 
-ASTInterpreter::ASTInterpreter(CompiledFunction* compiled_function)
-    : compiled_func(compiled_function),
-      source_info(compiled_function->clfunc->source.get()),
+ASTInterpreter::ASTInterpreter(CLFunction* clfunc)
+    : clfunc(clfunc),
+      source_info(clfunc->source.get()),
       scope_info(0),
       phis(NULL),
       current_block(0),
@@ -242,9 +242,8 @@ ASTInterpreter::ASTInterpreter(CompiledFunction* compiled_function)
       edgecount(0),
       frame_info(ExcInfo(NULL, NULL, NULL)) {
 
-    CLFunction* f = compiled_function->clfunc;
     if (!source_info->cfg)
-        source_info->cfg = computeCFG(f->source.get(), f->source->body);
+        source_info->cfg = computeCFG(clfunc->source.get(), clfunc->source->body);
 
     scope_info = source_info->getScopeInfo();
 
@@ -263,7 +262,7 @@ void ASTInterpreter::initArguments(int nargs, BoxedClosure* _closure, BoxedGener
     for (int i = 3; i < nargs; ++i)
         argsArray.push_back(args[i - 3]);
 
-    const ParamNames& param_names = compiled_func->clfunc->param_names;
+    const ParamNames& param_names = clfunc->param_names;
 
     int i = 0;
     for (auto& name : param_names.args) {
@@ -448,7 +447,7 @@ Value ASTInterpreter::visit_branch(AST_Branch* node) {
 }
 
 Value ASTInterpreter::visit_jump(AST_Jump* node) {
-    bool backedge = node->target->idx < current_block->idx && compiled_func;
+    bool backedge = node->target->idx < current_block->idx;
     if (backedge)
         threading::allowGLReadPreemption();
 
@@ -462,7 +461,7 @@ Value ASTInterpreter::visit_jump(AST_Jump* node) {
             // it through.
             std::unique_ptr<LivenessAnalysis> liveness = computeLivenessInfo(source_info->cfg);
             std::unique_ptr<PhiAnalysis> phis
-                = computeRequiredPhis(compiled_func->clfunc->param_names, source_info->cfg, liveness.get(), scope_info);
+                = computeRequiredPhis(clfunc->param_names, source_info->cfg, liveness.get(), scope_info);
 
             std::vector<InternedString> dead_symbols;
             for (auto& it : sym_table) {
@@ -477,8 +476,8 @@ Value ASTInterpreter::visit_jump(AST_Jump* node) {
                 sym_table.erase(dead);
 
             const OSREntryDescriptor* found_entry = nullptr;
-            for (auto& p : compiled_func->clfunc->osr_versions) {
-                if (p.first->cf != compiled_func)
+            for (auto& p : clfunc->osr_versions) {
+                if (p.first->cf != NULL)
                     continue;
                 if (p.first->backedge != node)
                     continue;
@@ -531,7 +530,7 @@ Value ASTInterpreter::visit_jump(AST_Jump* node) {
             sorted_symbol_table[source_info->getInternedStrings().get(FRAME_INFO_PTR_NAME)] = (Box*)&frame_info;
 
             if (found_entry == nullptr) {
-                OSREntryDescriptor* entry = OSREntryDescriptor::create(compiled_func, node);
+                OSREntryDescriptor* entry = OSREntryDescriptor::create(NULL, node);
 
                 for (auto& it : sorted_symbol_table) {
                     if (isIsDefinedName(it.first.str()))
@@ -551,7 +550,7 @@ Value ASTInterpreter::visit_jump(AST_Jump* node) {
                 found_entry = entry;
             }
 
-            OSRExit exit(compiled_func, found_entry);
+            OSRExit exit(NULL, found_entry);
 
             std::vector<Box*, StlCompatAllocator<Box*>> arg_array;
             for (auto& it : sorted_symbol_table) {
@@ -564,11 +563,6 @@ Value ASTInterpreter::visit_jump(AST_Jump* node) {
             Box* r = partial_func->call(std::get<0>(arg_tuple), std::get<1>(arg_tuple), std::get<2>(arg_tuple),
                                         std::get<3>(arg_tuple));
 
-            // This is one of the few times that we are allowed to have an invalid value in a Box* Value.
-            // Check for it, and return as an int so that we don't trigger a potential assert when
-            // creating the Value.
-            if (compiled_func->getReturnType() != VOID)
-                assert(r);
             return (intptr_t)r;
         }
     }
@@ -794,7 +788,7 @@ Box* ASTInterpreter::createFunction(AST* node, AST_arguments* args, const std::v
     }
 
     Box* passed_globals = NULL;
-    if (!getCF()->clfunc->source->scoping->areGlobalsFromModule())
+    if (!getCL()->source->scoping->areGlobalsFromModule())
         passed_globals = globals;
     return boxCLFunction(cl, closure, passed_globals, u.il);
 }
@@ -841,7 +835,7 @@ Value ASTInterpreter::visit_makeClass(AST_MakeClass* mkclass) {
     CLFunction* cl = wrapFunction(node, nullptr, node->body, source_info);
 
     Box* passed_globals = NULL;
-    if (!getCF()->clfunc->source->scoping->areGlobalsFromModule())
+    if (!getCL()->source->scoping->areGlobalsFromModule())
         passed_globals = globals;
     Box* attrDict = runtimeCall(boxCLFunction(cl, closure, passed_globals, {}), ArgPassSpec(0), 0, 0, 0, 0, 0);
 
@@ -1243,9 +1237,9 @@ Value ASTInterpreter::visit_attribute(AST_Attribute* node) {
 
 const void* interpreter_instr_addr = (void*)&ASTInterpreter::execute;
 
-Box* astInterpretFunction(CompiledFunction* cf, int nargs, Box* closure, Box* generator, Box* globals, Box* arg1,
+Box* astInterpretFunction(CLFunction* clfunc, int nargs, Box* closure, Box* generator, Box* globals, Box* arg1,
                           Box* arg2, Box* arg3, Box** args) {
-    assert((!globals) == cf->clfunc->source->scoping->areGlobalsFromModule());
+    assert((!globals) == clfunc->source->scoping->areGlobalsFromModule());
     bool can_reopt = ENABLE_REOPT && !FORCE_INTERPRETER && (globals == NULL);
     if (unlikely(can_reopt && cf->times_called > REOPT_THRESHOLD_INTERPRETER)) {
         assert(!globals);
@@ -1398,10 +1392,10 @@ Box* getGlobalsForInterpretedFrame(void* frame_ptr) {
     return interpreter->getGlobals();
 }
 
-CompiledFunction* getCFForInterpretedFrame(void* frame_ptr) {
+CLFunction* getCLForInterpretedFrame(void* frame_ptr) {
     ASTInterpreter* interpreter = s_interpreterMap[frame_ptr];
     assert(interpreter);
-    return interpreter->getCF();
+    return interpreter->getCL();
 }
 
 FrameInfo* getFrameInfoForInterpretedFrame(void* frame_ptr) {

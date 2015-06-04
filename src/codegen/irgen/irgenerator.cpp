@@ -1916,6 +1916,7 @@ private:
         CompilerVariable* val;
         if (node->value == NULL) {
             if (irstate->getReturnType() == VOID) {
+                RELEASE_ASSERT(0, "let's not return void anymore");
                 endBlock(DEAD);
                 emitter.getBuilder()->CreateRetVoid();
                 return;

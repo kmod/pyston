@@ -786,6 +786,11 @@ void Rewriter::commit() {
     assert(!finished);
     initPhaseEmitting();
 
+    if (failed) {
+        this->abort();
+        return;
+    }
+
     static StatCounter ic_rewrites_aborted_assemblyfail("ic_rewrites_aborted_assemblyfail");
 
     auto on_assemblyfail = [&]() {
@@ -1382,6 +1387,7 @@ Rewriter::Rewriter(ICSlotRewrite* rewrite, int num_args, const std::vector<int>&
     : rewrite(rewrite),
       assembler(rewrite->getAssembler()),
       return_location(rewrite->returnRegister()),
+      failed(false),
       added_changing_action(false),
       marked_inside_ic(false),
       last_guard_action(-1),

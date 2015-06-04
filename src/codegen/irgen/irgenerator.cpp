@@ -1492,7 +1492,7 @@ private:
             assert(rtn);
 
             ConcreteCompilerType* speculated_type = typeFromClass(speculated_class);
-            if (VERBOSITY("irgen") >= 2) {
+            if (VERBOSITY("irgen") >= 0) {
                 printf("Speculating that %s is actually %s, at ", rtn->getConcreteType()->debugName().c_str(),
                        speculated_type->debugName().c_str());
                 PrintVisitor printer;

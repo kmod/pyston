@@ -5,17 +5,17 @@ import sys
 import time
 
 if __name__ == "__main__":
-    cmd = ["./pyston_release", "-Ts", "test/tests/t2.py"]
+    cmd = ["./pyston_release", "-Ts", "test/tests/t.py"]
 
-    # start = time.time()
-    # p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    # out, err = p.communicate()
-    # assert p.wait() == 0
-    # elapsed = time.time() - start
-    # # open('tmp.txt', 'w').write(out)
+    start = time.time()
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out, err = p.communicate()
+    assert p.wait() == 0
+    elapsed = time.time() - start
+    open('tmp.txt', 'w').write(out)
 
-    elapsed = 1.5
-    out = open("tmp.txt").read()
+    # elapsed = 1.5
+    # out = open("tmp.txt").read()
 
     stats = []
     is_counter = False
@@ -41,3 +41,4 @@ if __name__ == "__main__":
     print "Most interesting stats:"
     for (name, s) in stats[:10]:
         print "% 40s %.3fs (%.0f%%)" % (name, s, 100.0 * s / elapsed)
+    print "%.1fs total time" % elapsed

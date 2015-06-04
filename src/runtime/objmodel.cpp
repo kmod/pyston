@@ -167,6 +167,12 @@ extern "C" Box* deopt(AST_expr* expr, Box* value) {
     static StatCounter num_deopt("num_deopt");
     num_deopt.log();
 
+    printf("Deopt!\n");
+    print_ast(expr);
+    printf("\n");
+    dump(value);
+    printf("\n");
+
     FrameStackState frame_state = getFrameStackState();
     auto execution_point = getExecutionPoint();
 
@@ -1330,6 +1336,14 @@ Box* dataDescriptorInstanceSpecialCases(GetattrRewriteArgs* rewrite_args, llvm::
     return NULL;
 }
 
+Box* doTpGetattro(Box* obj, Box* attr, void* getattro) {
+    RELEASE_ASSERT(obj->cls->tp_getattro == getattro, "");
+    Box* r = obj->cls->tp_getattro(obj, attr);
+    checkAndThrowCAPIException();
+    RELEASE_ASSERT(r, "");
+    return r;
+}
+
 Box* getattrInternalEx(Box* obj, llvm::StringRef attr, GetattrRewriteArgs* rewrite_args, bool cls_only, bool for_call,
                        Box** bind_obj_out, RewriterVar** r_bind_obj_out) {
     if (!cls_only) {
@@ -1341,6 +1355,7 @@ Box* getattrInternalEx(Box* obj, llvm::StringRef attr, GetattrRewriteArgs* rewri
             if (!r)
                 throwCAPIException();
 
+#if 1
             if (rewrite_args) {
                 static StatCounter num_rooted_attrs("num_rooted_attrs");
                 num_rooted_attrs.log();
@@ -1348,12 +1363,14 @@ Box* getattrInternalEx(Box* obj, llvm::StringRef attr, GetattrRewriteArgs* rewri
                 rewrite_args->obj->getAttr(offsetof(Box, cls))
                     ->addAttrGuard(offsetof(BoxedClass, tp_getattro), (uint64_t)obj->cls->tp_getattro);
                 auto r_box = rewrite_args->rewriter->loadConst((int64_t)PyGC_AddRoot(boxString(attr)));
-                auto r_rtn = rewrite_args->rewriter->call(true, (void*)obj->cls->tp_getattro, rewrite_args->obj, r_box);
-                rewrite_args->rewriter->call(true, (void*)checkAndThrowCAPIException);
+                auto r_rtn = rewrite_args->rewriter->call(true, (void*)doTpGetattro, rewrite_args->obj, r_box, rewrite_args->rewriter->loadConst((intptr_t)obj->cls->tp_getattro));
+                //auto r_rtn = rewrite_args->rewriter->call(true, (void*)obj->cls->tp_getattro, rewrite_args->obj, r_box);
+                //rewrite_args->rewriter->call(true, (void*)checkAndThrowCAPIException);
 
                 rewrite_args->out_rtn = r_rtn;
                 rewrite_args->out_success = true;
             }
+#endif
             return r;
         }
 
@@ -3282,10 +3299,10 @@ Box* callCLFunc(CLFunction* f, CallRewriteArgs* rewrite_args, int num_output_arg
     // distinguish lexically between calls that target jitted python
     // code and calls that target to builtins.
     if (f->source) {
-        STAT_TIMER(t0, "us_timer_chosen_cf_body_jitted");
+        STAT_TIMER(t0, "us_timer_unknown");
         r = callChosenCF(chosen_cf, closure, generator, oarg1, oarg2, oarg3, oargs);
     } else {
-        STAT_TIMER(t0, "us_timer_chosen_cf_body_builtins");
+        STAT_TIMER(t0, "us_timer_unknown");
         r = callChosenCF(chosen_cf, closure, generator, oarg1, oarg2, oarg3, oargs);
     }
 

@@ -687,7 +687,7 @@ void CompiledFunction::speculationFailed() {
                 printf("%p\n", clfunc->versions[i]);
             }
         }
-        assert(found);
+        RELEASE_ASSERT(found, "");
     }
 }
 

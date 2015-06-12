@@ -2447,6 +2447,7 @@ void setupRuntime() {
     str_cls = new (0) BoxedHeapClass(basestring_cls, NULL, 0, 0, offsetof(BoxedString, s_data) + 1, false, NULL);
     str_cls->tp_flags |= Py_TPFLAGS_STRING_SUBCLASS;
     str_cls->tp_itemsize = sizeof(char);
+    str_cls->simple_destructor = BoxedString::simple_destructor;
 
     // Hold off on assigning names until str_cls is ready
     object_cls->tp_name = "object";

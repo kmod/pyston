@@ -465,6 +465,7 @@ public:
 
 private:
     void* operator new(size_t size) = delete;
+    static void simple_destructor(Box* b);
 
     char s_data[0];
 

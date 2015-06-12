@@ -346,16 +346,18 @@ extern "C" Box* strAdd(BoxedString* lhs, Box* _rhs) {
     return new (lhs->size() + rhs->size()) BoxedString(lhs->s(), rhs->s());
 }
 
-static llvm::StringMap<Box*> interned_strings;
-static StatCounter num_interned_strings("num_interned_string");
+// Note: this data structure is *not gc-scanned*.  Instead, we use the string's
+// destructor to free element from it.
+static llvm::StringMap<BoxedString*> interned_strings;
+static StatCounter num_interned_strings_added("num_interned_strings_added");
+static StatCounter num_interned_strings_removed("num_interned_strings_removed");
 extern "C" PyObject* PyString_InternFromString(const char* s) noexcept {
     RELEASE_ASSERT(s, "");
     auto& entry = interned_strings[s];
     if (!entry) {
-        num_interned_strings.log();
-        entry = PyGC_AddRoot(boxString(s));
-        // CPython returns mortal but in our current implementation they are inmortal
-        ((BoxedString*)entry)->interned_state = SSTATE_INTERNED_IMMORTAL;
+        num_interned_strings_added.log();
+        entry = boxString(s);
+        entry->interned_state = SSTATE_INTERNED_MORTAL;
     }
     return entry;
 }
@@ -376,11 +378,25 @@ extern "C" void PyString_InternInPlace(PyObject** p) noexcept {
     if (entry)
         *p = entry;
     else {
-        num_interned_strings.log();
-        entry = PyGC_AddRoot(s);
+        num_interned_strings_added.log();
+        entry = s;
+        s->interned_state = SSTATE_INTERNED_MORTAL;
+    }
+}
 
-        // CPython returns mortal but in our current implementation they are inmortal
-        s->interned_state = SSTATE_INTERNED_IMMORTAL;
+void BoxedString::simple_destructor(Box* b) {
+    BoxedString* s = static_cast<BoxedString*>(b);
+    switch (s->interned_state) {
+        case SSTATE_NOT_INTERNED:
+            break;
+        case SSTATE_INTERNED_MORTAL:
+            interned_strings.erase(s->s());
+            num_interned_strings_removed.log();
+            break;
+        case SSTATE_INTERNED_IMMORTAL:
+            Py_FatalError("Immortal interned string died.");
+        default:
+            Py_FatalError("Inconsistent interned string state.");
     }
 }
 

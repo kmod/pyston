@@ -362,7 +362,7 @@ static void handle_sigprof(int signum) {
     sigprof_pending++;
 }
 
-//#define INVESTIGATE_STAT_TIMER "us_timer_in_jitted_code"
+//#define INVESTIGATE_STAT_TIMER "us_timer_slowpath_callattr"
 #ifdef INVESTIGATE_STAT_TIMER
 static_assert(STAT_TIMERS, "Stat timers need to be enabled to investigate them");
 static uint64_t* stat_counter = Stats::getStatCounter(INVESTIGATE_STAT_TIMER);

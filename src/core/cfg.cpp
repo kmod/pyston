@@ -336,8 +336,6 @@ private:
             InternedString iter_name = nodeName("lc_iter", i);
             pushAssign(iter_name, iter_call);
 
-            AST_expr* next_attr = makeLoadAttribute(makeLoad(iter_name, node), internString("next"), true);
-
             CFGBlock* test_block = cfg->addBlock();
             test_block->info = "comprehension_test";
             // printf("Test block for comp %d is %d\n", i, test_block->idx);
@@ -366,8 +364,11 @@ private:
             push_back(br);
 
             curblock = body_block;
+
             InternedString next_name(nodeName());
-            pushAssign(next_name, makeCall(next_attr));
+            AST_LangPrimitive* next_call = new AST_LangPrimitive(AST_LangPrimitive::NEXT);
+            next_call->args.push_back(makeLoad(iter_name, node));
+            pushAssign(next_name, next_call);
             pushAssign(c->target, makeLoad(next_name, node));
 
             for (AST_expr* if_condition : c->ifs) {
@@ -2014,8 +2015,6 @@ public:
         InternedString itername = createUniqueName("#iter_");
         pushAssign(itername, iter_call);
 
-        AST_expr* next_attr = makeLoadAttribute(makeLoad(itername, node), internString("next"), true);
-
         CFGBlock* test_block = cfg->addBlock();
         pushJump(test_block);
         curblock = test_block;
@@ -2046,8 +2045,11 @@ public:
         pushLoopContinuation(test_block, end_block);
 
         curblock = loop_block;
+
         InternedString next_name(nodeName());
-        pushAssign(next_name, makeCall(next_attr));
+        AST_LangPrimitive* next_call = new AST_LangPrimitive(AST_LangPrimitive::NEXT);
+        next_call->args.push_back(makeLoad(itername, node));
+        pushAssign(next_name, next_call);
         pushAssign(node->target, makeLoad(next_name, node));
 
         for (int i = 0; i < node->body.size(); i++) {

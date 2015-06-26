@@ -909,6 +909,10 @@ Value ASTInterpreter::visit_langPrimitive(AST_LangPrimitive* node) {
         assert(node->args.size() == 1);
         Value obj = visit_expr(node->args[0]);
         v = Value(boxBool(hasnext(obj.o)), jit ? jit->emitHasnext(obj) : NULL);
+    } else if (node->opcode == AST_LangPrimitive::NEXT) {
+        assert(node->args.size() == 1);
+        Value obj = visit_expr(node->args[0]);
+        v = obj.o->cls->callNextIC(obj.o);
     } else
         RELEASE_ASSERT(0, "unknown opcode %d", node->opcode);
     return v;

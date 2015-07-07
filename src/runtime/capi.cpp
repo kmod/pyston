@@ -215,7 +215,7 @@ extern "C" PyObject* PyObject_GetAttr(PyObject* o, PyObject* attr_name) noexcept
 
 extern "C" PyObject* PyObject_GenericGetAttr(PyObject* o, PyObject* name) noexcept {
     try {
-        Box* r = getattrInternalGeneric(o, static_cast<BoxedString*>(name)->data(), NULL, false, false, NULL, NULL);
+        Box* r = getattrInternalGeneric(o, static_cast<BoxedString*>(name), NULL, false, false, NULL, NULL);
         if (!r)
             PyErr_Format(PyExc_AttributeError, "'%.50s' object has no attribute '%.400s'", o->cls->tp_name,
                          PyString_AS_STRING(name));
@@ -637,7 +637,7 @@ extern "C" int PyCallable_Check(PyObject* x) noexcept {
     if (x == NULL)
         return 0;
 
-    static const std::string call_attr("__call__");
+    static BoxedString* call_attr = internStringImmortal("__call__");
     return typeLookup(x->cls, call_attr, NULL) != NULL;
 }
 
@@ -1417,7 +1417,8 @@ extern "C" char* PyModule_GetName(PyObject* m) noexcept {
         PyErr_BadArgument();
         return NULL;
     }
-    if ((nameobj = m->getattr("__name__")) == NULL || !PyString_Check(nameobj)) {
+    static BoxedString* name_str = internStringImmortal("__name__");
+    if ((nameobj = m->getattr(name_str)) == NULL || !PyString_Check(nameobj)) {
         PyErr_SetString(PyExc_SystemError, "nameless module");
         return NULL;
     }
@@ -1431,7 +1432,8 @@ extern "C" char* PyModule_GetFilename(PyObject* m) noexcept {
         PyErr_BadArgument();
         return NULL;
     }
-    if ((fileobj = m->getattr("__file__")) == NULL || !PyString_Check(fileobj)) {
+    static BoxedString* file_str = internStringImmortal("__file__");
+    if ((fileobj = m->getattr(file_str)) == NULL || !PyString_Check(fileobj)) {
         PyErr_SetString(PyExc_SystemError, "module filename missing");
         return NULL;
     }

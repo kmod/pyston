@@ -111,6 +111,7 @@ apps.populate((
 
 elapsed = 0
 for i in xrange(500):
+    print i
     #if pyston_loaded:
     #    __pyston__.clearStats()
     start = time.time()

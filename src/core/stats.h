@@ -51,6 +51,8 @@ namespace pyston {
 
 #define STAT_TIMER_NAME(id) _st##id
 
+void logInvestigateInfo(const char* fmt, ...);
+
 #if !DISABLE_STATS
 struct Stats {
 private:

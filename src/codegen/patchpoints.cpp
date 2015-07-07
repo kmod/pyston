@@ -173,8 +173,7 @@ void processStackmap(CompiledFunction* cf, StackMap* stackmap) {
 
         void* dst_func = new_patchpoints[r->id].second;
         if (VERBOSITY() >= 2) {
-            printf("Processing pp %ld; [%d, %d)\n", reinterpret_cast<int64_t>(pp), r->offset,
-                   r->offset + pp->patchpointSize());
+            printf("Processing pp %u; [%d, %d)\n", pp->getId(), r->offset, r->offset + pp->patchpointSize());
         }
 
         assert(r->locations.size() == pp->totalStackmapArgs());
@@ -186,6 +185,8 @@ void processStackmap(CompiledFunction* cf, StackMap* stackmap) {
 
         uint8_t* start_addr = (uint8_t*)pp->parentFunction()->code + r->offset;
         uint8_t* end_addr = start_addr + pp->patchpointSize();
+
+        logInvestigateInfo("pp %u lives at [%p, %p)\n", pp->getId(), start_addr, end_addr);
 
         if (ENABLE_JIT_OBJECT_CACHE)
             setSlowpathFunc(start_addr, dst_func);

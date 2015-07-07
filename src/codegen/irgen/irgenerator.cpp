@@ -269,6 +269,8 @@ private:
         int64_t pp_id = info->getId();
         int pp_size = pp ? pp->totalSize() : CALL_ONLY_SIZE;
 
+        logInvestigateInfo("Emitting patchpoint %ld (type %d)\n", pp_id, pp ? pp->type : -1);
+
         std::vector<llvm::Value*> pp_args;
         pp_args.push_back(getConstantInt(pp_id, g.i64)); // pp_id: will fill this in later
         pp_args.push_back(getConstantInt(pp_size, g.i32));
@@ -979,6 +981,8 @@ private:
             std::vector<llvm::Value*> llvm_args;
             llvm_args.push_back(embedParentModulePtr());
             llvm_args.push_back(embedRelocatablePtr(node->id.getBox(), g.llvm_boxedstring_type_ptr));
+
+            logInvestigateInfo("Doing getGlobal(%s)\n", node->id.getBox()->data());
 
             llvm::Value* uncasted = emitter.createIC(pp, (void*)pyston::getGlobal, llvm_args, unw_info);
             llvm::Value* r = emitter.getBuilder()->CreateIntToPtr(uncasted, g.llvm_value_type_ptr);

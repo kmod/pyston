@@ -258,6 +258,8 @@ public:
             llvm_args.push_back(ptr);
             llvm_args.push_back(converted->getValue());
 
+            logInvestigateInfo("Doing setattr(%s)\n", attr->data());
+
             emitter.createIC(pp, (void*)pyston::setattr, llvm_args, info.unw_info);
         } else {
             emitter.createCall3(info.unw_info, g.funcs.setattr, var->getValue(), ptr, converted->getValue());
@@ -278,6 +280,8 @@ public:
             std::vector<llvm::Value*> llvm_args;
             llvm_args.push_back(var->getValue());
             llvm_args.push_back(ptr);
+
+            logInvestigateInfo("Doing delattr(%s)\n", attr->data());
 
             emitter.createIC(pp, (void*)pyston::delattr, llvm_args, info.unw_info);
         } else {
@@ -325,6 +329,8 @@ public:
             std::vector<llvm::Value*> llvm_args;
             llvm_args.push_back(var->getValue());
 
+            logInvestigateInfo("Doing unboxedLen()\n");
+
             rtn = emitter.createIC(pp, (void*)pyston::unboxedLen, llvm_args, info.unw_info);
         } else {
             rtn = emitter.createCall(info.unw_info, g.funcs.unboxedLen, var->getValue());
@@ -345,6 +351,8 @@ public:
             std::vector<llvm::Value*> llvm_args;
             llvm_args.push_back(var->getValue());
             llvm_args.push_back(converted_slice->getValue());
+
+            logInvestigateInfo("Doing getitem()\n");
 
             llvm::Value* uncasted = emitter.createIC(pp, (void*)pyston::getitem, llvm_args, info.unw_info);
             rtn = emitter.getBuilder()->CreateIntToPtr(uncasted, g.llvm_value_type_ptr);
@@ -437,6 +445,8 @@ public:
             llvm_args.push_back(converted_rhs->getValue());
             llvm_args.push_back(getConstantInt(op_type, g.i32));
 
+            logInvestigateInfo("Doing binexp(%d)\n", op_type);
+
             llvm::Value* uncasted = emitter.createIC(pp, rt_func_addr, llvm_args, info.unw_info);
             rtn = emitter.getBuilder()->CreateIntToPtr(uncasted, g.llvm_value_type_ptr);
         } else {
@@ -502,6 +512,8 @@ CompilerVariable* UnknownType::getattr(IREmitter& emitter, const OpInfo& info, C
         std::vector<llvm::Value*> llvm_args;
         llvm_args.push_back(var->getValue());
         llvm_args.push_back(ptr);
+
+        logInvestigateInfo("Doing getattr(%s)\n", attr->data());
 
         llvm::Value* uncasted = emitter.createIC(pp, raw_func, llvm_args, info.unw_info);
         rtn_val = emitter.getBuilder()->CreateIntToPtr(uncasted, g.llvm_value_type_ptr);
@@ -648,6 +660,8 @@ CompilerVariable* UnknownType::call(IREmitter& emitter, const OpInfo& info, Conc
     else
         func = g.funcs.runtimeCallN;
 
+    logInvestigateInfo("Doing runtimeCall()\n");
+
     std::vector<llvm::Value*> other_args;
     other_args.push_back(var->getValue());
 
@@ -677,6 +691,8 @@ CompilerVariable* UnknownType::callattr(IREmitter& emitter, const OpInfo& info, 
     else
         func = g.funcs.callattrN;
 
+    logInvestigateInfo("Doing callattr(%s)\n", attr->data());
+
     std::vector<llvm::Value*> other_args;
     other_args.push_back(var->getValue());
     other_args.push_back(embedRelocatablePtr(attr, g.llvm_boxedstring_type_ptr));
@@ -692,6 +708,8 @@ ConcreteCompilerVariable* UnknownType::nonzero(IREmitter& emitter, const OpInfo&
 
         std::vector<llvm::Value*> llvm_args;
         llvm_args.push_back(var->getValue());
+
+        logInvestigateInfo("Doing nonzero()\n");
 
         llvm::Value* uncasted = emitter.createIC(pp, (void*)pyston::nonzero, llvm_args, info.unw_info);
         rtn_val = emitter.getBuilder()->CreateTrunc(uncasted, g.i1);
@@ -710,6 +728,8 @@ ConcreteCompilerVariable* UnknownType::hasnext(IREmitter& emitter, const OpInfo&
 
         std::vector<llvm::Value*> llvm_args;
         llvm_args.push_back(var->getValue());
+
+        logInvestigateInfo("Doing hasnext()\n");
 
         llvm::Value* uncasted = emitter.createIC(pp, (void*)pyston::hasnext, llvm_args, info.unw_info);
         rtn_val = emitter.getBuilder()->CreateTrunc(uncasted, g.i1);

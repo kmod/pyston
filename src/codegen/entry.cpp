@@ -441,8 +441,6 @@ static void _handle_sigprof_investigate(int signum) {
     int r = unw_step(&cursor);
     RELEASE_ASSERT(r > 0, "");
 
-    fprintf(investigate_file, "\n");
-
     while (true) {
         int r = unw_step(&cursor);
 
@@ -484,19 +482,29 @@ static void _handle_sigprof_investigate(int signum) {
             func_name = demangled_name.c_str();
         }
 
-        fprintf(investigate_file, "%s\n", func_name);
-
         if (is_jitted_func) {
+            logInvestigateInfo("%s @ 0x%ld\n", func_name, ip);
             // Stop if we hit a jitted frame; anything past that is probably uninteresting.
             return;
         }
+
+        logInvestigateInfo("%s\n", func_name);
     }
 }
 
 static void handle_sigprof_investigate(int signum) {
+    logInvestigateInfo("--begin\n");
     _handle_sigprof_investigate(signum);
+    logInvestigateInfo("--end\n");
     fflush(investigate_file);
     setitimer(ITIMER_PROF, &investigate_timer, NULL);
+}
+
+void logInvestigateInfo(const char* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+
+    vfprintf(investigate_file, fmt, ap);
 }
 #endif // METHOD_FILE
 #endif // METHOD != NONE

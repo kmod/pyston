@@ -15,6 +15,7 @@
 #include "codegen/entry.h"
 
 #include <cstdio>
+#include <dlfcn.h>
 #include <iostream>
 #include <lz4frame.h>
 #include <openssl/evp.h>
@@ -42,11 +43,15 @@
 #include "codegen/memmgr.h"
 #include "codegen/profiling/profiling.h"
 #include "codegen/stackmaps.h"
+#include "codegen/unwinding.h"
 #include "core/options.h"
 #include "core/types.h"
 #include "core/util.h"
 #include "runtime/objmodel.h"
 #include "runtime/types.h"
+
+#define UNW_LOCAL_ONLY
+#include <libunwind.h>
 
 /*
  * Include this file to force the linking of non-default algorithms, such as the "basic" register allocator
@@ -362,15 +367,139 @@ static void handle_sigprof(int signum) {
     sigprof_pending++;
 }
 
-//#define INVESTIGATE_STAT_TIMER "us_timer_in_jitted_code"
-#ifdef INVESTIGATE_STAT_TIMER
+// We have a couple sampling-based approaches for investigating the breakdowns of certain stat timers.
+// Set INVESTIGATE_STAT_TIMER to the name of the timer you are interested in, and then set
+// INVESTIGATE_METHOD to one of the following.
+//
+// The first is a simple gdb-based approach, where we throw a SIGTRAP if the sample occurs inside
+// the relevant stattimer.  To use it, set INVESTIGATE_METHOD to "gdb", and run the program
+// under gdb (ex `make dbg_release_django_template CMAKE_SHAREDMODS= RUN_DEPS=`).
+//
+// The second is to write out the stacktraces for later processing.  Set INVESTIGATE_METHOD
+// to "file".
+
+#define INVESTIGATE_METHOD_NONE 0
+#define INVESTIGATE_METHOD_GDB 1
+#define INVESTIGATE_METHOD_FILE 2
+
+#define INVESTIGATE_METHOD INVESTIGATE_METHOD_NONE
+
+#if INVESTIGATE_METHOD != INVESTIGATE_METHOD_NONE
+
 static_assert(STAT_TIMERS, "Stat timers need to be enabled to investigate them");
+#define INVESTIGATE_STAT_TIMER "us_timer_in_jitted_code"
+struct itimerval investigate_timer;
 static uint64_t* stat_counter = Stats::getStatCounter(INVESTIGATE_STAT_TIMER);
+
+#if INVESTIGATE_METHOD == INVESTIGATE_METHOD_GDB
 static void handle_sigprof_investigate_stattimer(int signum) {
     if (StatTimer::getCurrentCounter() == stat_counter)
         raise(SIGTRAP);
+    setitimer(ITIMER_PROF, &investigate_timer, NULL);
 }
-#endif
+#endif // METHOD_GDB
+
+#if INVESTIGATE_METHOD == INVESTIGATE_METHOD_FILE
+static bool in_malloc = false;
+extern "C" void* malloc(size_t sz) {
+    static void* (*libc_malloc)(size_t) = (void* (*)(size_t))dlsym(RTLD_NEXT, "malloc");
+    in_malloc = true;
+    void* r = libc_malloc(sz);
+    in_malloc = false;
+    return r;
+}
+
+extern "C" void* relloc(void* p, size_t sz) {
+    static void* (*libc_realloc)(void*, size_t) = (void* (*)(void*, size_t))dlsym(RTLD_NEXT, "realloc");
+    in_malloc = true;
+    void* r = libc_realloc(p, sz);
+    in_malloc = false;
+    return r;
+}
+
+extern "C" void free(void* p) {
+    static void (*libc_free)(void*) = (void (*)(void*))dlsym(RTLD_NEXT, "free");
+    in_malloc = true;
+    libc_free(p);
+    in_malloc = false;
+}
+
+static FILE* investigate_file = fopen("investigate.txt", "w");
+static void _handle_sigprof_investigate(int signum) {
+    if (in_malloc)
+        return;
+
+    if (StatTimer::getCurrentCounter() != stat_counter)
+        return;
+
+    unw_context_t ctx;
+    unw_cursor_t cursor;
+    unw_getcontext(&ctx);
+    unw_init_local(&cursor, &ctx);
+
+    // step through signal frame
+    int r = unw_step(&cursor);
+    RELEASE_ASSERT(r > 0, "");
+
+    fprintf(investigate_file, "\n");
+
+    while (true) {
+        int r = unw_step(&cursor);
+
+        assert(r >= 0);
+        if (r == 0)
+            break;
+
+        unw_word_t ip;
+        unw_word_t bp;
+        unw_get_reg(&cursor, UNW_REG_IP, &ip);
+        unw_get_reg(&cursor, UNW_TDEP_BP, &bp);
+
+        const char* func_name = NULL;
+        bool is_jitted_func = false;
+        CompiledFunction* cf = getCFForAddress(ip);
+        if (cf && cf->clfunc->source) {
+            func_name = cf->func->getName().data();
+            is_jitted_func = true;
+        }
+
+        Dl_info info;
+        if (!func_name) {
+            int dl_success = dladdr((void*)ip, &info);
+            if (dl_success)
+                func_name = info.dli_sname;
+        }
+
+        char name[500];
+        if (!func_name) {
+            unw_word_t off;
+            int err = unw_get_proc_name(&cursor, name, 500, &off);
+            if (err == 0 || err == -UNW_ENOMEM)
+                func_name = name;
+        }
+
+        std::string demangled_name;
+        if (func_name) {
+            demangled_name = tryDemangle(func_name);
+            func_name = demangled_name.c_str();
+        }
+
+        fprintf(investigate_file, "%s\n", func_name);
+
+        if (is_jitted_func) {
+            // Stop if we hit a jitted frame; anything past that is probably uninteresting.
+            return;
+        }
+    }
+}
+
+static void handle_sigprof_investigate(int signum) {
+    _handle_sigprof_investigate(signum);
+    fflush(investigate_file);
+    setitimer(ITIMER_PROF, &investigate_timer, NULL);
+}
+#endif // METHOD_FILE
+#endif // METHOD != NONE
 
 static void handle_sigint(int signum) {
     assert(signum == SIGINT);
@@ -485,12 +614,12 @@ void initCodegen() {
     setitimer(ITIMER_PROF, &prof_timer, NULL);
 #endif
 
-#ifdef INVESTIGATE_STAT_TIMER
-    struct itimerval prof_timer;
-    prof_timer.it_value.tv_sec = prof_timer.it_interval.tv_sec = 0;
-    prof_timer.it_value.tv_usec = prof_timer.it_interval.tv_usec = 1000;
-    signal(SIGPROF, handle_sigprof_investigate_stattimer);
-    setitimer(ITIMER_PROF, &prof_timer, NULL);
+#if INVESTIGATE_METHOD != METHOD_NONE
+    investigate_timer.it_value.tv_sec = investigate_timer.it_interval.tv_sec = 0;
+    investigate_timer.it_value.tv_usec = 1000;
+    investigate_timer.it_interval.tv_usec = 0;
+    signal(SIGPROF, handle_sigprof_investigate);
+    setitimer(ITIMER_PROF, &investigate_timer, NULL);
 #endif
 
     // There are some parts of llvm that are only configurable through command line args,

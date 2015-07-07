@@ -84,6 +84,8 @@ struct GlobalState {
 
 extern GlobalState g;
 
+std::string tryDemangle(const char* s);
+
 // in runtime_hooks.cpp:
 void initGlobalFuncs(GlobalState& g);
 

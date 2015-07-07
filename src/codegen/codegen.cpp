@@ -130,7 +130,7 @@ llvm::Function* FunctionAddressRegistry::getLLVMFuncAtAddress(void* addr) {
     return it->second.llvm_func;
 }
 
-static std::string tryDemangle(const char* s) {
+std::string tryDemangle(const char* s) {
     int status;
     char* demangled = abi::__cxa_demangle(s, NULL, NULL, &status);
     if (!demangled) {

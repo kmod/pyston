@@ -252,8 +252,10 @@ CompiledFunction* compileFunction(CLFunction* f, FunctionSpecialization* spec, E
         assert(!entry_descriptor);
         cf = new CompiledFunction(0, spec, true, NULL, effort, 0);
     } else {
+        logInvestigateInfo("--starting compile\n");
         cf = doCompile(source, &f->param_names, entry_descriptor, effort, spec, name);
         compileIR(cf, effort);
+        logInvestigateInfo("--ending compile\n");
     }
 
     f->addVersion(cf);

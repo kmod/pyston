@@ -432,6 +432,8 @@ static void _handle_sigprof_investigate(int signum) {
     if (StatTimer::getCurrentCounter() != stat_counter)
         return;
 
+    logInvestigateInfo("--starting trace\n");
+
     unw_context_t ctx;
     unw_cursor_t cursor;
     unw_getcontext(&ctx);
@@ -483,19 +485,19 @@ static void _handle_sigprof_investigate(int signum) {
         }
 
         if (is_jitted_func) {
-            logInvestigateInfo("%s @ 0x%ld\n", func_name, ip);
+            logInvestigateInfo("%s @ 0x%lx\n", func_name, ip);
             // Stop if we hit a jitted frame; anything past that is probably uninteresting.
-            return;
+            break;
         }
 
         logInvestigateInfo("%s\n", func_name);
     }
+
+    logInvestigateInfo("--ending trace\n");
 }
 
 static void handle_sigprof_investigate(int signum) {
-    logInvestigateInfo("--begin\n");
     _handle_sigprof_investigate(signum);
-    logInvestigateInfo("--end\n");
     fflush(investigate_file);
     setitimer(ITIMER_PROF, &investigate_timer, NULL);
 }
@@ -617,7 +619,7 @@ void initCodegen() {
 #if ENABLE_SAMPLING_PROFILER
     struct itimerval prof_timer;
     prof_timer.it_value.tv_sec = prof_timer.it_interval.tv_sec = 0;
-    prof_timer.it_value.tv_usec = prof_timer.it_interval.tv_usec = 1000;
+    prof_timer.it_value.tv_usec = prof_timer.it_interval.tv_usec = 100;
     signal(SIGPROF, handle_sigprof);
     setitimer(ITIMER_PROF, &prof_timer, NULL);
 #endif

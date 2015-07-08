@@ -1427,6 +1427,7 @@ private:
     CompilerVariable* evalExpr(AST_expr* node, UnwindInfo unw_info) {
         // printf("%d expr: %d\n", node->type, node->lineno);
         if (node->lineno) {
+            logInvestigateInfo("set lineno: %s:%d\n", irstate->getSourceInfo()->fn.c_str(), node->lineno);
             emitter.getBuilder()->SetCurrentDebugLocation(
                 llvm::DebugLoc::get(node->lineno, 0, irstate->getFuncDbgInfo()));
         }
@@ -1656,6 +1657,8 @@ private:
             llvm_args.push_back(converted_slice->getValue());
             llvm_args.push_back(converted_val->getValue());
 
+            logInvestigateInfo("Doing setitem()\n");
+
             emitter.createIC(pp, (void*)pyston::setitem, llvm_args, unw_info);
         } else {
             emitter.createCall3(unw_info, g.funcs.setitem, converted_target->getValue(), converted_slice->getValue(),
@@ -1780,6 +1783,8 @@ private:
             std::vector<llvm::Value*> llvm_args;
             llvm_args.push_back(converted_target->getValue());
             llvm_args.push_back(converted_slice->getValue());
+
+            logInvestigateInfo("Doing delitem()\n");
 
             emitter.createIC(pp, (void*)pyston::delitem, llvm_args, unw_info);
         } else {

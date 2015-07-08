@@ -392,6 +392,8 @@ public:
         // var has __iter__()
         emitter.setCurrentBasicBlock(bb_has_iter);
         ICSetupInfo* pp = createGenericIC(info.getTypeRecorder(), true, 128);
+
+        logInvestigateInfo("Doing createBoxedIterWrapperIfNeeded()\n");
         llvm::Value* uncasted = emitter.createIC(pp, (void*)pyston::createBoxedIterWrapperIfNeeded,
                                                  { converted_iter_call->getValue() }, info.unw_info);
         llvm::Value* value_has_iter = emitter.getBuilder()->CreateIntToPtr(uncasted, g.llvm_value_type_ptr);

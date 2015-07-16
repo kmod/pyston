@@ -635,6 +635,7 @@ GCAllocation* LargeArena::alloc(size_t size) {
     // printf ("allocLarge %zu\n", size);
 
     LargeObj* obj = _alloc(size + sizeof(GCAllocation) + sizeof(LargeObj));
+    objects.insert(ObjLookupCache(obj->data, size));
 
     obj->size = size;
 
@@ -658,7 +659,12 @@ GCAllocation* LargeArena::realloc(GCAllocation* al, size_t bytes) {
 }
 
 void LargeArena::free(GCAllocation* al) {
-    _freeLargeObj(LargeObj::fromAllocation(al));
+    LargeObj* obj = LargeObj::fromAllocation(al);
+    _freeLargeObj(obj);
+
+    ObjLookupCache c(obj->data, obj->size);
+    assert(objects.count(c));
+    objects.erase(c);
 }
 
 struct CompareObjLookupCache {
@@ -672,6 +678,15 @@ struct CompareObjLookupCache {
 };
 
 GCAllocation* LargeArena::allocationFrom(void* ptr) {
+    auto it = objects.lower_bound(ObjLookupCache(ptr, 0));
+    if (it == objects.end())
+        return NULL;
+
+    assert(it->data <= ptr);
+    if (ptr < (char*)it->data + it->size)
+        return (GCAllocation*)it->data;
+    return NULL;
+    /*
     if (lookup.size()) {
         int idx = binarySearch(ptr, lookup.begin(), lookup.end(), CompareObjLookupCache());
         if (idx < 0)
@@ -689,17 +704,18 @@ GCAllocation* LargeArena::allocationFrom(void* ptr) {
         }
         return NULL;
     }
+    */
 }
 
 void LargeArena::prepareForCollection() {
-    for (LargeObj* lo = head; lo; lo = lo->next) {
-        lookup.push_back(ObjLookupCache(&lo->data[0], lo->size));
-    }
-    std::sort(lookup.begin(), lookup.end(), ObjLookupCache::Comparator());
+    //for (LargeObj* lo = head; lo; lo = lo->next) {
+        //lookup.push_back(ObjLookupCache(&lo->data[0], lo->size));
+    //}
+    //std::sort(lookup.begin(), lookup.end(), ObjLookupCache::Comparator());
 }
 
 void LargeArena::cleanupAfterCollection() {
-    lookup.clear();
+    //lookup.clear();
 }
 
 void LargeArena::freeUnmarked(std::vector<Box*>& weakly_referenced, std::vector<BoxedClass*>& classes_to_free) {

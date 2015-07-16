@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <list>
+#include <set>
 #include <sys/mman.h>
 
 #include "core/common.h"
@@ -371,7 +372,7 @@ struct ObjLookupCache {
     ObjLookupCache(void* data, size_t size) : data(data), size(size) {}
 
     struct Comparator {
-        bool operator()(const ObjLookupCache& lhs, const ObjLookupCache& rhs) {
+        bool operator()(const ObjLookupCache& lhs, const ObjLookupCache& rhs) const {
             return lhs.data < rhs.data;
         }
     };
@@ -424,7 +425,10 @@ private:
 
     static constexpr int NUM_FREE_LISTS = 32;
 
-    std::vector<ObjLookupCache> lookup; // used during gc's to speed up finding large object GCAllocations
+    // A set of all objects, for fast searching of potential pointers.
+    std::set<ObjLookupCache, ObjLookupCache::Comparator> objects;
+    //std::vector<ObjLookupCache> lookup; // used during gc's to speed up finding large object GCAllocations
+
     Heap* heap;
     LargeObj* head;
     LargeBlock* blocks;

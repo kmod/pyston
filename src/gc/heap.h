@@ -369,6 +369,12 @@ struct ObjLookupCache {
     size_t size;
 
     ObjLookupCache(void* data, size_t size) : data(data), size(size) {}
+
+    struct Comparator {
+        bool operator()(const ObjLookupCache& lhs, const ObjLookupCache& rhs) {
+            return lhs.data < rhs.data;
+        }
+    };
 };
 
 

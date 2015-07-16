@@ -695,8 +695,7 @@ void LargeArena::prepareForCollection() {
     for (LargeObj* lo = head; lo; lo = lo->next) {
         lookup.push_back(ObjLookupCache(&lo->data[0], lo->size));
     }
-    std::sort(lookup.begin(), lookup.end(),
-              [](const ObjLookupCache& lo1, const ObjLookupCache& lo2) { return lo1.data < lo2.data; });
+    std::sort(lookup.begin(), lookup.end(), ObjLookupCache::Comparator());
 }
 
 void LargeArena::cleanupAfterCollection() {
@@ -906,8 +905,7 @@ void HugeArena::prepareForCollection() {
     for (HugeObj* lo = head; lo; lo = lo->next) {
         lookup.push_back(ObjLookupCache(&lo->data[0], lo->size));
     }
-    std::sort(lookup.begin(), lookup.end(),
-              [](const ObjLookupCache& lo1, const ObjLookupCache& lo2) { return lo1.data < lo2.data; });
+    std::sort(lookup.begin(), lookup.end(), ObjLookupCache::Comparator());
 }
 
 void HugeArena::cleanupAfterCollection() {

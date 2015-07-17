@@ -370,10 +370,10 @@ public:
         visitor->visitRange((void* const*)&children.vector()[0], (void* const*)&children.vector()[children.size()]);
         if (attrwrapper_child)
             visitor->visit(attrwrapper_child);
-        for (auto p : children)
-            visitor->visit(p.first);
-        for (auto p : attr_offsets)
-            visitor->visit(p.first);
+        // We don't need to visit the children attrs since the children themselves should keep them alive
+        if (!children.size())
+            for (auto p : attr_offsets)
+                visitor->visit(p.first);
     }
 
     // The total size of the attribute array.  The slots in the attribute array may not correspond 1:1 to Python

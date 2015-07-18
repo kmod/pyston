@@ -325,25 +325,25 @@ public:
     static HiddenClass* dict_backed;
 
 private:
-    HiddenClass(HCType type) : type(type) {}
-    HiddenClass(HiddenClass* parent) : type(NORMAL), attr_offsets(), attrwrapper_offset(parent->attrwrapper_offset) {
+    HiddenClass(HCType type) : type(type), parent(NULL), attr(NULL) {}
+    HiddenClass(BoxedString* attr, HiddenClass* parent)
+        : type(NORMAL), parent(parent), attr(attr), attr_offset(parent->attr_offset + 1) {
         assert(parent->type == NORMAL);
-        for (auto& p : parent->attr_offsets) {
-            this->attr_offsets.insert(p);
-        }
     }
 
     // These fields only make sense for NORMAL or SINGLETON hidden classes:
-    llvm::DenseMap<BoxedString*, int> attr_offsets;
-    // If >= 0, is the offset where we stored an attrwrapper object
-    int attrwrapper_offset = -1;
 
     // These are only for NORMAL hidden classes:
-    ContiguousMap<BoxedString*, HiddenClass*, llvm::DenseMap<BoxedString*, int>> children;
-    HiddenClass* attrwrapper_child = NULL;
+    HiddenClass* parent;
+    BoxedString* attr; // attr is NULL if this is an attrwrapper node
+    int attr_offset;
+    std::vector<HiddenClass*> children;
 
     // Only for SINGLETON hidden classes:
     ICInvalidator dependent_getattrs;
+    llvm::DenseMap<BoxedString*, int> attr_offsets;
+    // If >= 0, is the offset where we stored an attrwrapper object
+    int attrwrapper_offset = -1;
 
 public:
     static HiddenClass* makeSingleton() { return new HiddenClass(SINGLETON); }
@@ -354,7 +354,9 @@ public:
         assert(!made);
         made = true;
 #endif
-        return new HiddenClass(NORMAL);
+        auto r = new HiddenClass(NORMAL);
+        r->attr_offset = -1;
+        return r;
     }
     static HiddenClass* makeDictBacked() {
 #ifndef NDEBUG
@@ -367,13 +369,24 @@ public:
 
     void gc_visit(GCVisitor* visitor) {
         // Visit children even for the dict-backed case, since children will just be empty
-        visitor->visitRange((void* const*)&children.vector()[0], (void* const*)&children.vector()[children.size()]);
-        if (attrwrapper_child)
-            visitor->visit(attrwrapper_child);
-        // We don't need to visit the children attrs since the children themselves should keep them alive
-        if (!children.size())
+        visitor->visitRange((void* const*)&children[0], (void* const*)&children[children.size()]);
+        visitor->visit(attr);
+        visitor->visit(parent);
+
+        if (type == SINGLETON) {
             for (auto p : attr_offsets)
                 visitor->visit(p.first);
+        }
+    }
+
+    BoxedString* getAttr() {
+        assert(type == NORMAL);
+        return attr;
+    }
+
+    HiddenClass* getParent() {
+        assert(type == NORMAL);
+        return parent;
     }
 
     // The total size of the attribute array.  The slots in the attribute array may not correspond 1:1 to Python
@@ -382,19 +395,42 @@ public:
         if (type == DICT_BACKED)
             return 1;
 
-        ASSERT(type == NORMAL || type == SINGLETON, "%d", type);
-        int r = attr_offsets.size();
-        if (attrwrapper_offset != -1)
-            r += 1;
-        return r;
+        if (type == SINGLETON) {
+            int r = attr_offsets.size();
+            if (attrwrapper_offset != -1)
+                r += 1;
+            return r;
+        }
+
+        if (type == NORMAL) {
+            return attr_offset + 1;
+        }
+
+        abort();
     }
 
     // The mapping from string attribute names to attribute offsets.  There may be other objects in the attributes
     // array.
     // Only valid for NORMAL or SINGLETON hidden classes
     const llvm::DenseMap<BoxedString*, int>& getStrAttrOffsets() {
-        assert(type == NORMAL || type == SINGLETON);
+        assert(type == SINGLETON);
         return attr_offsets;
+    }
+
+    template <typename F> void foreachStrAttr(F func) {
+        if (type == SINGLETON) {
+            for (auto p : attr_offsets)
+                func(p.first, p.second);
+        } else if (type == NORMAL) {
+            HiddenClass* c = this;
+            while (c->parent) {
+                if (c->attr)
+                    func(c->attr, c->attr_offset);
+                c = c->parent;
+            }
+        } else {
+            abort();
+        }
     }
 
     // Only valid for NORMAL hidden classes:
@@ -403,15 +439,28 @@ public:
     // Only valid for NORMAL or SINGLETON hidden classes:
     int getOffset(BoxedString* attr) {
         assert(type == NORMAL || type == SINGLETON);
-        auto it = attr_offsets.find(attr);
-        if (it == attr_offsets.end())
+        assert(!attr || PyString_CHECK_INTERNED(attr));
+        if (type == SINGLETON) {
+            auto it = attr_offsets.find(attr);
+            if (it == attr_offsets.end())
+                return -1;
+            return it->second;
+        } else {
+            HiddenClass* c = this;
+            while (c->parent) {
+                if (c->attr == attr)
+                    return c->attr_offset;
+                c = c->parent;
+            }
             return -1;
-        return it->second;
+        }
     }
 
     int getAttrwrapperOffset() {
         assert(type == NORMAL || type == SINGLETON);
-        return attrwrapper_offset;
+        if (type == SINGLETON)
+            return attrwrapper_offset;
+        return getOffset(NULL);
     }
 
     // Only valid for SINGLETON hidden classes:

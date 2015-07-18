@@ -558,34 +558,26 @@ void HiddenClass::addDependence(Rewriter* rewriter) {
 HiddenClass* HiddenClass::getOrMakeChild(BoxedString* attr) {
     STAT_TIMER(t0, "us_timer_hiddenclass_getOrMakeChild", 0);
 
-    assert(attr->interned_state != SSTATE_NOT_INTERNED);
+    assert(!attr || attr->interned_state != SSTATE_NOT_INTERNED);
     assert(type == NORMAL);
 
-    auto it = children.find(attr);
-    if (it != children.end())
-        return children.getMapped(it->second);
+    for (HiddenClass* child : children) {
+        if (child->attr == attr)
+            return child;
+    }
 
     static StatCounter num_hclses("num_hidden_classes");
     num_hclses.log();
 
-    HiddenClass* rtn = new HiddenClass(this);
-    this->children[attr] = rtn;
-    rtn->attr_offsets[attr] = this->attributeArraySize();
+    HiddenClass* rtn = new HiddenClass(attr, this);
+    this->children.push_back(rtn);
     assert(rtn->attributeArraySize() == this->attributeArraySize() + 1);
     return rtn;
 }
 
 HiddenClass* HiddenClass::getAttrwrapperChild() {
     assert(type == NORMAL);
-    assert(attrwrapper_offset == -1);
-
-    if (!attrwrapper_child) {
-        attrwrapper_child = new HiddenClass(this);
-        attrwrapper_child->attrwrapper_offset = this->attributeArraySize();
-        assert(attrwrapper_child->attributeArraySize() == this->attributeArraySize() + 1);
-    }
-
-    return attrwrapper_child;
+    return getOrMakeChild(NULL);
 }
 
 /**
@@ -599,30 +591,23 @@ HiddenClass* HiddenClass::delAttrToMakeHC(BoxedString* attr) {
     int idx = getOffset(attr);
     assert(idx >= 0);
 
-    std::vector<BoxedString*> new_attrs(attributeArraySize() - 1);
-    for (auto it = attr_offsets.begin(); it != attr_offsets.end(); ++it) {
-        if (it->second < idx)
-            new_attrs[it->second] = it->first;
-        else if (it->second > idx) {
-            new_attrs[it->second - 1] = it->first;
-        }
-    }
+    llvm::SmallVector<BoxedString*, 8> new_attrs;
 
-    int new_attrwrapper_offset = attrwrapper_offset;
-    if (new_attrwrapper_offset > idx)
-        new_attrwrapper_offset--;
+    HiddenClass* c = this;
+    while (c->parent) {
+        if (c->attr != attr)
+            new_attrs.push_back(c->attr);
+        c = c->parent;
+    }
+    std::reverse(new_attrs.begin(), new_attrs.end());
 
     // TODO we can first locate the parent HiddenClass of the deleted
     // attribute and hence avoid creation of its ancestors.
     HiddenClass* cur = root_hcls;
-    int curidx = 0;
     for (const auto& attr : new_attrs) {
-        if (curidx == new_attrwrapper_offset)
-            cur = cur->getAttrwrapperChild();
-        else
-            cur = cur->getOrMakeChild(attr);
-        curidx++;
+        cur = cur->getOrMakeChild(attr);
     }
+    assert(cur->attributeArraySize() == this->attributeArraySize() - 1);
     return cur;
 }
 
@@ -912,7 +897,7 @@ void Box::setattr(BoxedString* attr, Box* val, SetattrRewriteArgs* rewrite_args)
         if (hcls->type == HiddenClass::NORMAL) {
             HiddenClass* new_hcls = hcls->getOrMakeChild(attr);
             // make sure we don't need to rearrange the attributes
-            assert(new_hcls->getStrAttrOffsets().lookup(attr) == hcls->attributeArraySize());
+            assert(new_hcls->getOffset(attr) == hcls->attributeArraySize());
 
             this->appendNewHCAttr(val, rewrite_args);
             attrs->hcls = new_hcls;
@@ -5207,12 +5192,12 @@ extern "C" Box* importStar(Box* _from_module, Box* to_globals) {
     }
 
     HCAttrs* module_attrs = from_module->getHCAttrsPtr();
-    for (auto& p : module_attrs->hcls->getStrAttrOffsets()) {
-        if (p.first->data()[0] == '_')
-            continue;
+    module_attrs->hcls->foreachStrAttr([&](BoxedString* attr, int offset) {
+        if (attr->data()[0] == '_')
+            return;
 
-        setGlobal(to_globals, p.first, module_attrs->attr_list->attrs[p.second]);
-    }
+        setGlobal(to_globals, attr, module_attrs->attr_list->attrs[offset]);
+    });
 
     return None;
 }

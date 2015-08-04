@@ -14,7 +14,7 @@
    +----------------------------------------------------------------------+
 */
 
-#include "hphp/tools/hfsort/hfutil.h"
+#include "hfutil.h"
 
 #include <set>
 

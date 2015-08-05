@@ -1354,6 +1354,20 @@ Box* builtinFormat(Box* value, Box* format_spec) {
     return res;
 }
 
+extern "C" PyObject* PyImport_ReloadModule(PyObject* m) noexcept {
+    Py_FatalError("unimplemented");
+}
+
+static Box* builtinReload(Box* v) {
+    if (PyErr_WarnPy3k("In 3.x, reload() is renamed to imp.reload()", 1) < 0)
+        throwCAPIException();
+
+    Box* r = PyImport_ReloadModule(v);
+    if (!r)
+        throwCAPIException();
+    return r;
+}
+
 void setupBuiltins() {
     builtins_module
         = createModule("__builtin__", NULL, "Built-in functions, exceptions, and other objects.\n\nNoteworthy: None is "
@@ -1594,5 +1608,7 @@ void setupBuiltins() {
                               new BoxedBuiltinFunctionOrMethod(boxRTFunction((void*)builtinCmp, UNKNOWN, 2), "cmp"));
     builtins_module->giveAttr(
         "format", new BoxedBuiltinFunctionOrMethod(boxRTFunction((void*)builtinFormat, UNKNOWN, 2), "format"));
+    builtins_module->giveAttr(
+        "reload", new BoxedBuiltinFunctionOrMethod(boxRTFunction((void*)builtinReload, UNKNOWN, 1), "reload"));
 }
 }

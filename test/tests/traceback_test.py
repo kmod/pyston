@@ -112,6 +112,15 @@ def f(n):
 print
 print ''.join(f(5))
 
+# pytest assumes that tracebacks either have tb_next, or are iterable:
+try:
+    1/0
+except:
+    _, _, tb = sys.exc_info()
+    try:
+        tb.tb_next
+    except:
+        list(tb)
 
 # Output some extra stuff at the end so that it doesn't look like the script crashed with an exception:
 print

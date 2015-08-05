@@ -117,11 +117,23 @@ void BoxedTraceback::here(LineInfo lineInfo, Box** tb) {
     *tb = new BoxedTraceback(std::move(lineInfo), *tb);
 }
 
+static Box* tracebackGetLineno(Box* b, void*) {
+    assert(b->cls == traceback_cls);
+
+    BoxedTraceback* tb = static_cast<BoxedTraceback*>(b);
+
+    return boxInt(tb->line.line);
+}
+
 void setupTraceback() {
     traceback_cls = BoxedHeapClass::create(type_cls, object_cls, BoxedTraceback::gcHandler, 0, 0,
                                            sizeof(BoxedTraceback), false, "traceback");
 
     traceback_cls->giveAttr("getLines", new BoxedFunction(boxRTFunction((void*)BoxedTraceback::getLines, UNKNOWN, 1)));
+    traceback_cls->giveAttr(
+        "tb_next", new BoxedMemberDescriptor(BoxedMemberDescriptor::OBJECT, offsetof(BoxedTraceback, tb_next)));
+    traceback_cls->giveAttr("tb_lineno", new (pyston_getset_cls) BoxedGetsetDescriptor(tracebackGetLineno, NULL, NULL));
+    traceback_cls->giveAttr("tb_frame", None);
 
     traceback_cls->freeze();
 }

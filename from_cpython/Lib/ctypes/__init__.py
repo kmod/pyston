@@ -5,6 +5,8 @@
 
 import os as _os, sys as _sys
 
+raise ImportError()
+
 __version__ = "1.1.0"
 
 from _ctypes import Union, Structure, Array

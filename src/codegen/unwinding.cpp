@@ -664,6 +664,8 @@ void unwindingThroughFrame(PythonUnwindSession* unwind_session, unw_cursor_t* cu
         if (!unwind_session->shouldSkipFrame())
             unwind_session->addTraceback(frame_iter);
 
+        frame_iter.getCL()->propagated_cxx_exceptions++;
+
         // frame_iter->cf->entry_descriptor will be non-null for OSR frames.
         bool was_osr = (frame_iter.getId().type == PythonFrameId::COMPILED) && (frame_iter.cf->entry_descriptor);
         unwind_session->setShouldSkipNextFrame(was_osr);

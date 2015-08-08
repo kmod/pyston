@@ -381,6 +381,8 @@ public:
     std::vector<std::unique_ptr<JitCodeBlock>> code_blocks;
     ICInvalidator dependent_interp_callsites;
 
+    int propagated_cxx_exceptions = 0;
+
     // Functions can provide an "internal" version, which will get called instead
     // of the normal dispatch through the functionlist.
     // This can be used to implement functions which know how to rewrite themselves,

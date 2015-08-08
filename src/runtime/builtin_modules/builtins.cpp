@@ -236,16 +236,19 @@ extern "C" Box* max(Box* arg0, BoxedTuple* args, BoxedDict* kwargs) {
     return maxElement;
 }
 
-extern "C" Box* next(Box* iterator, Box* _default) {
-    try {
-        static BoxedString* next_str = internStringImmortal("next");
-        CallattrFlags callattr_flags{.cls_only = true, .null_on_nonexistent = false, .argspec = ArgPassSpec(0) };
-        return callattr(iterator, next_str, callattr_flags, NULL, NULL, NULL, NULL, NULL);
-    } catch (ExcInfo e) {
-        if (_default && e.matches(StopIteration))
-            return _default;
-        throw e;
+extern "C" Box* builtinNext(Box* iterator, Box* _default) {
+    static BoxedString* next_str = internStringImmortal("next");
+    Box* r = callattrInternal<CAPI>(iterator, next_str, LookupScope::CLASS_ONLY, NULL, ArgPassSpec(0), NULL, NULL, NULL,
+                                    NULL, NULL);
+
+    if (r)
+        return r;
+    assert(PyErr_Occurred());
+    if (_default && PyErr_ExceptionMatches(StopIteration)) {
+        PyErr_Clear();
+        return _default;
     }
+    return NULL;
 }
 
 extern "C" Box* sum(Box* container, Box* initial) {
@@ -1425,8 +1428,10 @@ void setupBuiltins() {
     max_obj = new BoxedBuiltinFunctionOrMethod(boxRTFunction((void*)max, UNKNOWN, 1, 1, true, true), "max", { None });
     builtins_module->giveAttr("max", max_obj);
 
-    builtins_module->giveAttr("next", new BoxedBuiltinFunctionOrMethod(
-                                          boxRTFunction((void*)next, UNKNOWN, 2, 1, false, false), "next", { NULL }));
+    builtins_module->giveAttr("next",
+                              new BoxedBuiltinFunctionOrMethod(boxRTFunction((void*)builtinNext, UNKNOWN, 2, 1, false,
+                                                                             false, ParamNames::empty(), CAPI),
+                                                               "next", { NULL }));
 
     builtins_module->giveAttr("sum", new BoxedBuiltinFunctionOrMethod(
                                          boxRTFunction((void*)sum, UNKNOWN, 2, 1, false, false), "sum", { boxInt(0) }));

@@ -132,7 +132,7 @@ size_t PyHasher::operator()(Box* b) const {
 #endif
     if (b->cls == str_cls) {
         auto s = static_cast<BoxedString*>(b);
-        return strHashUnboxed(s);
+        return s->hash();
     }
 
     return hashUnboxed(b);

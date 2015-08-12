@@ -56,33 +56,33 @@ namespace pyston {
 BoxedString* EmptyString;
 BoxedString* characters[UCHAR_MAX + 1];
 
-BoxedString::BoxedString(const char* s, size_t n) : interned_state(SSTATE_NOT_INTERNED) {
+BoxedString::BoxedString(const char* s, size_t n) : saved_hash(-1), interned_state(SSTATE_NOT_INTERNED) {
     assert(s);
     RELEASE_ASSERT(n != llvm::StringRef::npos, "");
     memmove(data(), s, n);
     data()[n] = 0;
 }
 
-BoxedString::BoxedString(llvm::StringRef lhs, llvm::StringRef rhs) : interned_state(SSTATE_NOT_INTERNED) {
+BoxedString::BoxedString(llvm::StringRef lhs, llvm::StringRef rhs) : saved_hash(-1), interned_state(SSTATE_NOT_INTERNED) {
     RELEASE_ASSERT(lhs.size() + rhs.size() != llvm::StringRef::npos, "");
     memmove(data(), lhs.data(), lhs.size());
     memmove(data() + lhs.size(), rhs.data(), rhs.size());
     data()[lhs.size() + rhs.size()] = 0;
 }
 
-BoxedString::BoxedString(llvm::StringRef s) : interned_state(SSTATE_NOT_INTERNED) {
+BoxedString::BoxedString(llvm::StringRef s) : saved_hash(-1), interned_state(SSTATE_NOT_INTERNED) {
     RELEASE_ASSERT(s.size() != llvm::StringRef::npos, "");
     memmove(data(), s.data(), s.size());
     data()[s.size()] = 0;
 }
 
-BoxedString::BoxedString(size_t n, char c) : interned_state(SSTATE_NOT_INTERNED) {
+BoxedString::BoxedString(size_t n, char c) : saved_hash(-1), interned_state(SSTATE_NOT_INTERNED) {
     RELEASE_ASSERT(n != llvm::StringRef::npos, "");
     memset(data(), c, n);
     data()[n] = 0;
 }
 
-BoxedString::BoxedString(size_t n) : interned_state(SSTATE_NOT_INTERNED) {
+BoxedString::BoxedString(size_t n) : saved_hash(-1), interned_state(SSTATE_NOT_INTERNED) {
     RELEASE_ASSERT(n != llvm::StringRef::npos, "");
     // Note: no memset.  add the null-terminator for good measure though
     // (CPython does the same thing).
@@ -1564,8 +1564,8 @@ extern "C" size_t unicodeHashUnboxed(PyUnicodeObject* self) {
     return x;
 }
 
-extern "C" size_t strHashUnboxed(BoxedString* self) {
-    assert(PyString_Check(self));
+size_t BoxedString::_hash() {
+    assert(PyString_Check(this));
     const char* p;
     long x;
 
@@ -1573,7 +1573,7 @@ extern "C" size_t strHashUnboxed(BoxedString* self) {
     assert(_Py_HashSecret_Initialized);
 #endif
 
-    long len = Py_SIZE(self);
+    long len = Py_SIZE(this);
     /*
       We make the hash of the empty string be 0, rather than using
       (prefix ^ suffix), since this slightly obfuscates the hash secret
@@ -1581,12 +1581,12 @@ extern "C" size_t strHashUnboxed(BoxedString* self) {
     if (len == 0) {
         return 0;
     }
-    p = self->s().data();
+    p = this->s().data();
     x = _Py_HashSecret.prefix;
     x ^= *p << 7;
     while (--len >= 0)
         x = (1000003 * x) ^ *p++;
-    x ^= Py_SIZE(self);
+    x ^= Py_SIZE(this);
     x ^= _Py_HashSecret.suffix;
     if (x == -1)
         x = -2;
@@ -1595,11 +1595,11 @@ extern "C" size_t strHashUnboxed(BoxedString* self) {
 }
 
 extern "C" Box* strHash(BoxedString* self) {
-    return boxInt(strHashUnboxed(self));
+    return boxInt(self->hash());
 }
 
 size_t str_hash(BoxedString* self) noexcept {
-    return strHashUnboxed(self);
+    return self->hash();
 }
 
 extern "C" Box* strNonzero(BoxedString* self) {

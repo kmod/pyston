@@ -375,6 +375,7 @@ public:
     // optimizations and inlining, creating a new one each time shouldn't have any cost.
     llvm::StringRef s() const { return llvm::StringRef(s_data, ob_size); };
 
+    size_t saved_hash;
     char interned_state;
 
     char* data() { return s_data; }
@@ -383,6 +384,15 @@ public:
         return data();
     }
     size_t size() { return this->ob_size; }
+
+    size_t _hash();
+    size_t hash() noexcept {
+        if (saved_hash == -1) {
+            saved_hash = _hash();
+            assert(saved_hash != -1);
+        }
+        return saved_hash;
+    }
 
     // DEFAULT_CLASS_VAR_SIMPLE doesn't work because of the +1 for the null byte
     void* operator new(size_t size, BoxedClass* cls, size_t nitems) __attribute__((visibility("default"))) {
@@ -433,8 +443,6 @@ private:
 
     friend void setupRuntime();
 };
-
-extern "C" size_t strHashUnboxed(BoxedString* self);
 
 class BoxedInstanceMethod : public Box {
 public:

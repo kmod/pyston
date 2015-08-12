@@ -523,6 +523,8 @@ private:
     // Appends a new value to the hcattrs array.
     void appendNewHCAttr(Box* val, SetattrRewriteArgs* rewrite_args);
 
+    size_t getHCAttrsOffset();
+
 public:
     // Add a no-op constructor to make sure that we don't zero-initialize cls
     Box() {}
@@ -535,7 +537,6 @@ public:
 
     llvm::iterator_range<BoxIterator> pyElements();
 
-    size_t getHCAttrsOffset();
     HCAttrs* getHCAttrsPtr();
     void setDict(BoxedDict* d);
     BoxedDict* getDict();
@@ -550,8 +551,9 @@ public:
 
     // getattr() does the equivalent of PyDict_GetItem(obj->dict, attr): it looks up the attribute's value on the
     // object's attribute storage. it doesn't look at other objects or do any descriptor logic.
+    template <bool Rewriteable=true>
     Box* getattr(BoxedString* attr, GetattrRewriteArgs* rewrite_args);
-    Box* getattr(BoxedString* attr) { return getattr(attr, NULL); }
+    Box* getattr(BoxedString* attr) { return getattr<false>(attr, NULL); }
     bool hasattr(BoxedString* attr) { return getattr(attr) != NULL; }
     void delattr(BoxedString* attr, DelattrRewriteArgs* rewrite_args);
 

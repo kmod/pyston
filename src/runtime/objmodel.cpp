@@ -607,8 +607,6 @@ const char* getNameOfClass(BoxedClass* cls) {
 }
 
 size_t Box::getHCAttrsOffset() {
-    assert(cls->instancesHaveHCAttrs());
-
     if (unlikely(cls->attrs_offset < 0)) {
         // negative indicates an offset from the end of an object
         if (cls->tp_itemsize != 0) {
@@ -626,7 +624,10 @@ size_t Box::getHCAttrsOffset() {
 
 HCAttrs* Box::getHCAttrsPtr() {
     char* p = reinterpret_cast<char*>(this);
-    p += this->getHCAttrsOffset();
+    int offset = this->getHCAttrsOffset();
+    if (!offset)
+        return NULL;
+    p += offset;
     return reinterpret_cast<HCAttrs*>(p);
 }
 
@@ -661,8 +662,14 @@ BoxedDict* Box::getDict() {
 }
 
 static StatCounter box_getattr_slowpath("slowpath_box_getattr");
+template <bool Rewriteable>
 Box* Box::getattr(BoxedString* attr, GetattrRewriteArgs* rewrite_args) {
     assert(attr->interned_state != SSTATE_NOT_INTERNED);
+
+    if (!Rewriteable) {
+        assert(!rewrite_args);
+        rewrite_args = NULL;
+    }
 
     // We have to guard on the class in order to know the object's layout,
     // ie to know which kinds of attributes the object has and where they
@@ -697,8 +704,8 @@ Box* Box::getattr(BoxedString* attr, GetattrRewriteArgs* rewrite_args) {
     // Only matters if we end up getting multiple classes with the same
     // structure (ex user class) and the same hidden classes, because
     // otherwise the guard will fail anyway.;
-    if (cls->instancesHaveHCAttrs()) {
-        HCAttrs* attrs = getHCAttrsPtr();
+    HCAttrs* attrs = getHCAttrsPtr();
+    if (attrs) {
         HiddenClass* hcls = attrs->hcls;
 
         if (unlikely(hcls->type == HiddenClass::DICT_BACKED)) {
@@ -839,8 +846,8 @@ void Box::setattr(BoxedString* attr, Box* val, SetattrRewriteArgs* rewrite_args)
 
     RELEASE_ASSERT(attr->s() != none_str || this == builtins_module, "can't assign to None");
 
-    if (cls->instancesHaveHCAttrs()) {
-        HCAttrs* attrs = getHCAttrsPtr();
+    HCAttrs* attrs = getHCAttrsPtr();
+    if (attrs) {
         HiddenClass* hcls = attrs->hcls;
 
         if (hcls->type == HiddenClass::DICT_BACKED) {
@@ -997,12 +1004,12 @@ Box* typeLookup(BoxedClass* cls, BoxedString* attr, GetattrRewriteArgs* rewrite_
             // has attributes that start with an underscore.
             if (b == object_cls) {
                 if (attr->data()[0] != '_') {
-                    assert(!b->getattr(attr, NULL));
+                    assert(!b->getattr(attr));
                     continue;
                 }
             }
 
-            val = b->getattr(attr, NULL);
+            val = b->getattr(attr);
             if (val)
                 return val;
         }
@@ -1725,7 +1732,7 @@ Box* getattrInternalGeneric(Box* obj, BoxedString* attr, GetattrRewriteArgs* rew
                     r_val = hrewrite_args.out_rtn;
                 }
             } else {
-                val = obj->getattr(attr, NULL);
+                val = obj->getattr(attr);
             }
 
             if (val) {
@@ -1897,10 +1904,10 @@ Box* getattrMaybeNonstring(Box* obj, Box* attr) {
     return r;
 }
 
+static StatCounter slowpath_getattr("slowpath_getattr");
 template <ExceptionStyle S> Box* _getattrEntry(Box* obj, BoxedString* attr, void* return_addr) noexcept(S == CAPI) {
     STAT_TIMER(t0, "us_timer_slowpath_getattr", 10);
 
-    static StatCounter slowpath_getattr("slowpath_getattr");
     slowpath_getattr.log();
 
     assert(PyString_Check(attr));
@@ -4863,9 +4870,9 @@ extern "C" void delitem(Box* target, Box* slice) {
 
 void Box::delattr(BoxedString* attr, DelattrRewriteArgs* rewrite_args) {
     assert(attr->interned_state != SSTATE_NOT_INTERNED);
-    if (cls->instancesHaveHCAttrs()) {
+    HCAttrs* attrs = getHCAttrsPtr();
+    if (attrs) {
         // as soon as the hcls changes, the guard on hidden class won't pass.
-        HCAttrs* attrs = getHCAttrsPtr();
         HiddenClass* hcls = attrs->hcls;
 
         if (hcls->type == HiddenClass::DICT_BACKED) {
@@ -4926,7 +4933,7 @@ extern "C" void delattrGeneric(Box* obj, BoxedString* attr, DelattrRewriteArgs* 
     }
 
     // check if the attribute is in the instance's __dict__
-    Box* attrVal = obj->getattr(attr, NULL);
+    Box* attrVal = obj->getattr(attr);
     if (attrVal != NULL) {
         obj->delattr(attr, NULL);
     } else {
@@ -5513,7 +5520,7 @@ extern "C" Box* getGlobal(Box* globals, BoxedString* name) {
                     return r;
                 }
             } else {
-                r = m->getattr(name, NULL);
+                r = m->getattr(name);
                 nopatch_getglobal.log();
                 if (r) {
                     return r;
@@ -5550,7 +5557,7 @@ extern "C" Box* getGlobal(Box* globals, BoxedString* name) {
                 rewriter->commitReturning(rewrite_args.out_rtn);
             }
         } else {
-            rtn = builtins_module->getattr(name, NULL);
+            rtn = builtins_module->getattr(name);
         }
 
         if (rtn)

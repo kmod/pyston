@@ -336,9 +336,8 @@ void Box::gcHandler(GCVisitor* v, Box* b) {
     if (b->cls) {
         v->visit(b->cls);
 
-        if (b->cls->instancesHaveHCAttrs()) {
-            HCAttrs* attrs = b->getHCAttrsPtr();
-
+        HCAttrs* attrs = b->getHCAttrsPtr();
+        if (attrs) {
             v->visit(attrs->hcls);
             if (attrs->attr_list)
                 v->visit(attrs->attr_list);
@@ -1361,14 +1360,13 @@ static void typeSubSetDict(Box* obj, Box* val, void* context) {
         return;
     }
 
-    if (obj->cls->instancesHaveHCAttrs()) {
+    HCAttrs* hcattrs = obj->getHCAttrsPtr();
+    if (hcattrs) {
         RELEASE_ASSERT(val->cls == dict_cls || val->cls == attrwrapper_cls, "");
 
         auto new_attr_list
             = (HCAttrs::AttrList*)gc_alloc(sizeof(HCAttrs::AttrList) + sizeof(Box*), gc::GCKind::PRECISE);
         new_attr_list->attrs[0] = val;
-
-        HCAttrs* hcattrs = obj->getHCAttrsPtr();
 
         hcattrs->hcls = HiddenClass::dict_backed;
         hcattrs->attr_list = new_attr_list;
@@ -3064,10 +3062,9 @@ static void typeSetBases(Box* b, Box* v, void* c) {
 // Added as parameter because it should typically be available
 inline void initUserAttrs(Box* obj, BoxedClass* cls) {
     assert(obj->cls == cls);
-    if (cls->instancesHaveHCAttrs()) {
-        HCAttrs* attrs = obj->getHCAttrsPtr();
+    HCAttrs* attrs = obj->getHCAttrsPtr();
+    if (attrs)
         attrs = new ((void*)attrs) HCAttrs();
-    }
 }
 
 extern "C" void PyObject_InitHcAttrs(HCAttrs* attrs) noexcept {

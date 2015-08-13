@@ -221,6 +221,26 @@ void raiseExcHelper(BoxedClass* cls, const char* msg, ...) {
     }
 }
 
+extern "C" PyObject* PyErr_FormatFast(PyObject* exception, const char* format, ...) noexcept {
+    va_list vargs;
+    PyObject* string;
+
+#ifdef HAVE_STDARG_PROTOTYPES
+    va_start(vargs, format);
+#else
+    va_start(vargs);
+#endif
+
+    char buf[1024];
+    int length = vsnprintf(buf, sizeof(buf), format, vargs);
+    string = PyString_FromStringAndSize(buf, length);
+
+    PyErr_SetObject(exception, string);
+    Py_XDECREF(string);
+    va_end(vargs);
+    return NULL;
+}
+
 
 void logException(ExcInfo* exc_info) {
 #if STAT_EXCEPTIONS

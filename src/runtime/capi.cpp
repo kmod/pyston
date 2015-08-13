@@ -223,8 +223,8 @@ extern "C" PyObject* PyObject_GetAttr(PyObject* o, PyObject* attr) noexcept {
     Box* r = getattrInternal<ExceptionStyle::CAPI>(o, s, NULL);
 
     if (!r && !PyErr_Occurred()) {
-        PyErr_Format(PyExc_AttributeError, "'%.50s' object has no attribute '%.400s'", o->cls->tp_name,
-                     PyString_AS_STRING(attr));
+        PyErr_FormatFast(PyExc_AttributeError, "'%.50s' object has no attribute '%.400s'", o->cls->tp_name,
+                         PyString_AS_STRING(attr));
     }
 
     return r;

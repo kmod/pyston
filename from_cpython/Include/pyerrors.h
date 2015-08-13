@@ -221,6 +221,13 @@ PyAPI_FUNC(PyObject *) PyErr_SetFromErrnoWithUnicodeFilename(
 
 PyAPI_FUNC(PyObject *) PyErr_Format(PyObject *, const char *, ...)
                         PYSTON_NOEXCEPT Py_GCC_ATTRIBUTE((format(printf, 2, 3)));
+// Pyston addition:
+// This "Fast" variant should be similar to the normal version, except
+// - it has a cap on the length of the error string (currently 1023 characters)
+// - it calls sprintf instead of PyString_FromFormat, so doesn't necessarily
+//   follow the Python formating rules 100%
+PyAPI_FUNC(PyObject *) PyErr_FormatFast(PyObject *, const char *, ...)
+                        PYSTON_NOEXCEPT Py_GCC_ATTRIBUTE((format(printf, 2, 3)));
 
 #ifdef MS_WINDOWS
 PyAPI_FUNC(PyObject *) PyErr_SetFromWindowsErrWithFilenameObject(

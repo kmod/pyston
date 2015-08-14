@@ -740,51 +740,83 @@ private:
         size_t count(Box* k) { return d.count(k); };
     };
 
+    enum DictStrategy {
+        DENSE_MAP,
+    } strategy;
+
     union {
         DenseMapDict dense_map;
     };
 
 public:
-    BoxedDict() __attribute__((visibility("default"))) : dense_map() {}
+    BoxedDict() __attribute__((visibility("default"))) : strategy(DENSE_MAP), dense_map() {}
 
     DEFAULT_CLASS_SIMPLE(dict_cls);
 
     class iterator {
     private:
+        DictStrategy strategy;
         union {
             DenseMapDict::iterator dense_map_iterator;
         };
 
     public:
-        iterator(DenseMapDict::iterator iterator) : dense_map_iterator(std::move(iterator)) {}
+        iterator(DenseMapDict::iterator iterator) : strategy(DENSE_MAP), dense_map_iterator(std::move(iterator)) {}
 
         iterator(iterator&& iterator);
 
         iterator& operator=(iterator iterator) {
-            dense_map_iterator = std::move(iterator.dense_map_iterator);
+            assert(this->strategy == iterator.strategy);
+            switch (strategy) {
+                case DENSE_MAP:
+                    dense_map_iterator = std::move(iterator.dense_map_iterator);
+            }
             return *this;
         }
 
-        bool operator==(const iterator& rhs) const { return dense_map_iterator == rhs.dense_map_iterator; }
+        bool operator==(const iterator& rhs) const {
+            assert(this->strategy == rhs.strategy);
+            switch (strategy) {
+                case DENSE_MAP:
+                    return dense_map_iterator == rhs.dense_map_iterator;
+            }
+        }
         bool operator!=(const iterator& rhs) const { return !(*this == rhs); }
         iterator& operator++() {
-            ++dense_map_iterator;
+            switch (strategy) {
+                case DENSE_MAP:
+                    ++dense_map_iterator;
+            }
             return *this;
         }
-        std::pair<Box*, Box*> operator*() const { return *dense_map_iterator; }
+        std::pair<Box*, Box*> operator*() const {
+            switch (strategy) {
+                case DENSE_MAP:
+                    return *dense_map_iterator;
+            }
+        }
 
-        operator const DenseMapDict::iterator&() const { return dense_map_iterator; }
+        operator const DenseMapDict::iterator&() const {
+            assert(strategy == DENSE_MAP);
+            return dense_map_iterator;
+        }
     };
 
 #define DEFER(func)                                                                                                    \
     do {                                                                                                               \
-        return dense_map func;                                                                                         \
+        switch (strategy) {                                                                                            \
+            case DENSE_MAP:                                                                                            \
+                return dense_map func;                                                                                 \
+        }                                                                                                              \
     } while (0)
 
 #define DEFER_VOID(func)                                                                                               \
     do {                                                                                                               \
-        dense_map func;                                                                                                \
-        return;                                                                                                        \
+        switch (strategy) {                                                                                            \
+            case DENSE_MAP:                                                                                            \
+                dense_map func;                                                                                        \
+                return;                                                                                                \
+        }                                                                                                              \
     } while (0)
 
     iterator begin() { DEFER(.begin()); }

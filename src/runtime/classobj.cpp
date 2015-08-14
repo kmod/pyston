@@ -138,7 +138,7 @@ Box* classobjCall(Box* _cls, Box* _args, Box* _kwargs) {
         if (init_rtn != None)
             raiseExcHelper(TypeError, "__init__() should return None");
     } else {
-        if (args->size() || (kwargs && kwargs->d.size()))
+        if (args->size() || (kwargs && kwargs->size()))
             raiseExcHelper(TypeError, "this constructor takes no arguments");
     }
     return made;

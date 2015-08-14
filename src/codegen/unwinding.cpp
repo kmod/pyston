@@ -895,7 +895,7 @@ DeoptState getDeoptState() {
                         Box* v = e.type->deserializeFromFrame(vals);
                         // printf("%s: (pp id %ld) %p\n", p.first.c_str(), e._debug_pp_id, v);
                         ASSERT(gc::isValidGCObject(v), "%p", v);
-                        d->d[boxString(p.first)] = v;
+                        (*d)[boxString(p.first)] = v;
                     }
                 }
             }
@@ -997,7 +997,7 @@ Box* PythonFrameIterator::fastLocalsToBoxedLocals() {
                     Box* v = e.type->deserializeFromFrame(vals);
                     // printf("%s: (pp id %ld) %p\n", p.first.c_str(), e._debug_pp_id, v);
                     assert(gc::isValidGCObject(v));
-                    d->d[boxString(p.first)] = v;
+                    (*d)[boxString(p.first)] = v;
                 }
             }
         }
@@ -1051,9 +1051,9 @@ Box* PythonFrameIterator::fastLocalsToBoxedLocals() {
         Box* val = closure->elts[derefInfo.offset];
         Box* boxedName = name.getBox();
         if (val != NULL) {
-            d->d[boxedName] = val;
+            (*d)[boxedName] = val;
         } else {
-            d->d.erase(boxedName);
+            d->erase(boxedName);
         }
     }
 

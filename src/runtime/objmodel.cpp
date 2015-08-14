@@ -764,11 +764,11 @@ Box* Box::getattr(BoxedString* attr, GetattrRewriteArgs* rewrite_args) {
 
         BoxedDict* d = getDict();
 
-        auto it = d->d.find(attr);
-        if (it == d->d.end()) {
+        auto it = d->find(attr);
+        if (it == d->end()) {
             return NULL;
         }
-        return it->second;
+        return (*it).second;
     }
 
     if (rewrite_args) {
@@ -927,7 +927,7 @@ void Box::setattr(BoxedString* attr, Box* val, SetattrRewriteArgs* rewrite_args)
 
     if (cls->instancesHaveDictAttrs()) {
         BoxedDict* d = getDict();
-        d->d[attr] = val;
+        (*d)[attr] = val;
         return;
     }
 
@@ -2995,7 +2995,7 @@ static KeywordDest placeKeyword(const ParamNames* param_names, llvm::SmallVector
     }
 
     if (okwargs) {
-        Box*& v = okwargs->d[kw_name];
+        Box*& v = (*okwargs)[kw_name];
         if (v) {
             raiseExcHelper(TypeError, "%.200s() got multiple values for keyword argument '%s'", func_name,
                            kw_name->c_str());
@@ -3309,7 +3309,7 @@ void rearrangeArguments(ParamReceiveSpec paramspec, const ParamNames* param_name
         if (!param_names || !param_names->takes_param_names) {
             assert(okwargs);
             assert(!rewrite_args); // would need to add it to r_kwargs
-            okwargs->d[(*keyword_names)[i]] = kw_val;
+            (*okwargs)[(*keyword_names)[i]] = kw_val;
             continue;
         }
 
@@ -3350,7 +3350,7 @@ void rearrangeArguments(ParamReceiveSpec paramspec, const ParamNames* param_name
                 assert(!rewrite_args && "would need to make sure that this didn't need to go into r_kwargs");
                 assert(okwargs);
 
-                Box*& v = okwargs->d[p.first];
+                Box*& v = (*okwargs)[p.first];
                 if (v) {
                     raiseExcHelper(TypeError, "%s() got multiple values for keyword argument '%s'", func_name,
                                    s->data());
@@ -5463,10 +5463,10 @@ extern "C" void delGlobal(Box* globals, BoxedString* name) {
         assert(globals->cls == dict_cls);
         BoxedDict* d = static_cast<BoxedDict*>(globals);
 
-        auto it = d->d.find(name);
+        auto it = d->find(name);
         assert(name->data()[name->size()] == '\0');
-        assertNameDefined(it != d->d.end(), name->data(), NameError, false /* local_var_msg */);
-        d->d.erase(it);
+        assertNameDefined(it != d->end(), name->data(), NameError, false /* local_var_msg */);
+        d->erase(it);
     }
 }
 
@@ -5527,9 +5527,9 @@ extern "C" Box* getGlobal(Box* globals, BoxedString* name) {
             rewriter.reset(NULL);
             REWRITE_ABORTED("Rewriting not implemented for getGlobals with a dict globals yet");
 
-            auto it = d->d.find(name);
-            if (it != d->d.end()) {
-                return it->second;
+            auto it = d->find(name);
+            if (it != d->end()) {
+                return (*it).second;
             }
         }
 
@@ -5571,10 +5571,10 @@ Box* getFromGlobals(Box* globals, BoxedString* name) {
     if (globals->cls == module_cls) {
         return globals->getattr(name);
     } else if (globals->cls == dict_cls) {
-        auto d = static_cast<BoxedDict*>(globals)->d;
-        auto it = d.find(name);
-        if (it != d.end())
-            return it->second;
+        auto d = static_cast<BoxedDict*>(globals);
+        auto it = d->find(name);
+        if (it != d->end())
+            return (*it).second;
         return NULL;
     } else {
         RELEASE_ASSERT(0, "%s", globals->cls->tp_name);
@@ -5591,7 +5591,7 @@ void setGlobal(Box* globals, BoxedString* name, Box* value) {
         setattr(static_cast<BoxedModule*>(globals), name, value);
     } else {
         RELEASE_ASSERT(globals->cls == dict_cls, "%s", globals->cls->tp_name);
-        static_cast<BoxedDict*>(globals)->d[name] = value;
+        (*static_cast<BoxedDict*>(globals))[name] = value;
     }
 }
 
@@ -5669,10 +5669,10 @@ extern "C" Box* boxedLocalsGet(Box* boxedLocals, BoxedString* attr, Box* globals
     assert(boxedLocals != NULL);
 
     if (boxedLocals->cls == dict_cls) {
-        auto& d = static_cast<BoxedDict*>(boxedLocals)->d;
-        auto it = d.find(attr);
-        if (it != d.end()) {
-            Box* value = it->second;
+        auto d = static_cast<BoxedDict*>(boxedLocals);
+        auto it = d->find(attr);
+        if (it != d->end()) {
+            Box* value = (*it).second;
             return value;
         }
     } else {
@@ -5695,12 +5695,12 @@ extern "C" Box* boxedLocalsGet(Box* boxedLocals, BoxedString* attr, Box* globals
 extern "C" void boxedLocalsDel(Box* boxedLocals, BoxedString* attr) {
     assert(boxedLocals != NULL);
     RELEASE_ASSERT(boxedLocals->cls == dict_cls, "we don't support non-dict here yet");
-    auto& d = static_cast<BoxedDict*>(boxedLocals)->d;
-    auto it = d.find(attr);
-    if (it == d.end()) {
+    auto d = static_cast<BoxedDict*>(boxedLocals);
+    auto it = d->find(attr);
+    if (it == d->end()) {
         assert(attr->data()[attr->size()] == '\0');
         assertNameDefined(0, attr->data(), NameError, false /* local_var_msg */);
     }
-    d.erase(it);
+    d->erase(it);
 }
 }

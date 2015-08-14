@@ -700,7 +700,7 @@ Box* JitFragmentWriter::createDictHelper(uint64_t num, Box** keys, Box** values)
     for (uint64_t i = 0; i < num; ++i) {
         assert(gc::isValidGCObject(keys[i]));
         assert(gc::isValidGCObject(values[i]));
-        dict->d[keys[i]] = values[i];
+        (*dict)[keys[i]] = values[i];
     }
     return dict;
 }

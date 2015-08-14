@@ -221,7 +221,7 @@ extern "C" void dumpEx(void* p, int levels) {
 
         if (PyDict_Check(b)) {
             BoxedDict* d = static_cast<BoxedDict*>(b);
-            printf("%d elements\n", d->d.size());
+            printf("%ld elements\n", d->size());
 
             if (levels > 0) {
                 int i = 0;

@@ -1220,7 +1220,7 @@ static Box* typeCallInner(CallRewriteArgs* rewrite_args, ArgPassSpec argspec, Bo
 Box* typeCall(Box* obj, BoxedTuple* vararg, BoxedDict* kwargs) {
     assert(vararg->cls == tuple_cls);
 
-    bool pass_kwargs = (kwargs && kwargs->d.size());
+    bool pass_kwargs = (kwargs && kwargs->size());
 
     int n = vararg->size();
     int args_to_pass = n + 1 + (pass_kwargs ? 1 : 0); // 1 for obj, 1 for kwargs
@@ -2338,7 +2338,7 @@ public:
         HCAttrs* attrs = self->b->getHCAttrsPtr();
         RELEASE_ASSERT(attrs->hcls->type == HiddenClass::NORMAL || attrs->hcls->type == HiddenClass::SINGLETON, "");
         for (const auto& p : attrs->hcls->getStrAttrOffsets()) {
-            rtn->d[p.first] = attrs->attr_list->attrs[p.second];
+            (*rtn)[p.first] = attrs->attr_list->attrs[p.second];
         }
         return rtn;
     }
@@ -3809,7 +3809,7 @@ BoxedModule* createModule(const std::string& name, const char* fn, const char* d
     if (fn)
         module->giveAttr("__file__", boxString(fn));
 
-    d->d[b_name] = module;
+    (*d)[b_name] = module;
     if (name == "__main__")
         module->giveAttr("__builtins__", builtins_module);
     return module;

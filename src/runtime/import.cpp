@@ -38,7 +38,7 @@ static BoxedClass* null_importer_cls;
 static void removeModule(const std::string& name) {
     BoxedDict* d = getSysModulesDict();
     Box* b_name = boxString(name);
-    d->d.erase(b_name);
+    d->erase(b_name);
 }
 
 Box* createAndRunModule(const std::string& name, const std::string& fn) {
@@ -351,7 +351,7 @@ static Box* getParent(Box* globals, int level, std::string& buf) {
 
     BoxedDict* sys_modules = getSysModulesDict();
     Box* boxed_name = boxString(buf);
-    Box* parent = sys_modules->d.find(boxed_name) != sys_modules->d.end() ? sys_modules->d[boxed_name] : NULL;
+    Box* parent = sys_modules->find(boxed_name) != sys_modules->end() ? (*sys_modules)[boxed_name] : NULL;
     if (parent == NULL) {
         if (orig_level < 1) {
             printf("Warning: Parent module '%.200s' not found "
@@ -374,8 +374,8 @@ static Box* getParent(Box* globals, int level, std::string& buf) {
 static Box* importSub(const std::string& name, const std::string& full_name, Box* parent_module) {
     Box* boxed_name = boxString(full_name);
     BoxedDict* sys_modules = getSysModulesDict();
-    if (sys_modules->d.find(boxed_name) != sys_modules->d.end()) {
-        return sys_modules->d[boxed_name];
+    if (sys_modules->find(boxed_name) != sys_modules->end()) {
+        return (*sys_modules)[boxed_name];
     }
 
     BoxedList* path_list;
@@ -426,7 +426,7 @@ static Box* importSub(const std::string& name, const std::string& full_name, Box
 static void markMiss(std::string& name) {
     BoxedDict* modules = getSysModulesDict();
     Box* b_name = boxString(name);
-    modules->d[b_name] = None;
+    (*modules)[b_name] = None;
 }
 
 /* altmod is either None or same as mod */
@@ -826,7 +826,7 @@ BoxedModule* importCExtension(const std::string& full_name, const std::string& l
 
     BoxedDict* sys_modules = getSysModulesDict();
     Box* s = boxString(full_name);
-    Box* _m = sys_modules->d[s];
+    Box* _m = (*sys_modules)[s];
     RELEASE_ASSERT(_m, "dynamic module not initialized properly");
     assert(_m->cls == module_cls);
 

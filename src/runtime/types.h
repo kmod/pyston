@@ -660,70 +660,154 @@ struct PyLt {
 };
 
 class BoxedDict : public Box {
-public:
-    // llvm::DenseMap doesn't store the original hash values, choosing to instead
-    // check for equality more often.  This is probably a good tradeoff when the keys
-    // are pointers and comparison is cheap, but we want to make sure that keys with
-    // different hash values don't get compared.
-    struct BoxAndHash {
-        Box* value;
-        size_t hash;
+private:
+    class DenseMapDict {
+    private:
+        // llvm::DenseMap doesn't store the original hash values, choosing to instead
+        // check for equality more often.  This is probably a good tradeoff when the keys
+        // are pointers and comparison is cheap, but we want to make sure that keys with
+        // different hash values don't get compared.
+        struct BoxAndHash {
+            Box* value;
+            size_t hash;
 
-        BoxAndHash(Box* value) : value(value), hash(PyHasher()(value)) {}
-        BoxAndHash(Box* value, size_t hash) : value(value), hash(hash) {}
-    };
+            BoxAndHash(Box* value) : value(value), hash(PyHasher()(value)) {}
+            BoxAndHash(Box* value, size_t hash) : value(value), hash(hash) {}
+        };
 
-    struct Comparisons {
-        static bool isEqual(BoxAndHash lhs, BoxAndHash rhs) {
-            if (lhs.value == rhs.value)
-                return true;
-            if (rhs.value == (Box*)-1 || rhs.value == (Box*)-2)
-                return false;
-            if (lhs.hash != rhs.hash)
-                return false;
-            return PyEq()(lhs.value, rhs.value);
+        struct Comparisons {
+            static bool isEqual(BoxAndHash lhs, BoxAndHash rhs) {
+                if (lhs.value == rhs.value)
+                    return true;
+                if (rhs.value == (Box*)-1 || rhs.value == (Box*)-2)
+                    return false;
+                if (lhs.hash != rhs.hash)
+                    return false;
+                return PyEq()(lhs.value, rhs.value);
+            }
+            static BoxAndHash getEmptyKey() { return BoxAndHash((Box*)-1, 0); }
+            static BoxAndHash getTombstoneKey() { return BoxAndHash((Box*)-2, 0); }
+            static unsigned getHashValue(BoxAndHash val) { return val.hash; }
+        };
+
+        typedef llvm::DenseMap<BoxAndHash, Box*, Comparisons> DictMap;
+
+        DictMap d;
+
+    public:
+        class iterator {
+        private:
+            DictMap::iterator it;
+
+        public:
+            iterator(DictMap::iterator it) : it(std::move(it)) {}
+
+            bool operator!=(const iterator& rhs) const { return it != rhs.it; }
+            bool operator==(const iterator& rhs) const { return it == rhs.it; }
+            iterator& operator++() {
+                ++it;
+                return *this;
+            }
+            std::pair<Box*, Box*> operator*() const { return std::make_pair(it->first.value, it->second); }
+            Box* first() const { return it->first.value; }
+
+            friend class DenseMapDict;
+        };
+
+        Box* getOrNull(Box* k) {
+            const auto& p = d.find(BoxAndHash(k));
+            if (p != d.end())
+                return p->second;
+            return NULL;
         }
-        static BoxAndHash getEmptyKey() { return BoxAndHash((Box*)-1, 0); }
-        static BoxAndHash getTombstoneKey() { return BoxAndHash((Box*)-2, 0); }
-        static unsigned getHashValue(BoxAndHash val) { return val.hash; }
+
+        iterator begin() { return iterator(d.begin()); }
+        iterator end() { return iterator(d.end()); }
+
+        iterator find(Box* k) { return d.find(k); }
+        size_t size() const { return d.size(); }
+
+        Box*& operator[](Box* k) { return d[k]; }
+
+        void erase(Box* k) { d.erase(k); }
+        void erase(const iterator& it) { d.erase(it.it); }
+
+        void insert(std::pair<Box*, Box*> p) { d.insert(std::make_pair(BoxAndHash(p.first), p.second)); }
+        void insert(const iterator& first, const iterator& last) { d.insert(first, last); }
+
+        void clear() { d.clear(); }
+
+        size_t count(Box* k) { return d.count(k); };
     };
 
-    typedef llvm::DenseMap<BoxAndHash, Box*, Comparisons> DictMap;
+    union {
+        DenseMapDict dense_map;
+    };
 
-    DictMap d;
-
-    BoxedDict() __attribute__((visibility("default"))) {}
+public:
+    BoxedDict() __attribute__((visibility("default"))) : dense_map() {}
 
     DEFAULT_CLASS_SIMPLE(dict_cls);
 
-    Box* getOrNull(Box* k) {
-        const auto& p = d.find(BoxAndHash(k));
-        if (p != d.end())
-            return p->second;
-        return NULL;
-    }
-
     class iterator {
     private:
-        DictMap::iterator it;
+        union {
+            DenseMapDict::iterator dense_map_iterator;
+        };
 
     public:
-        iterator(DictMap::iterator it) : it(std::move(it)) {}
+        iterator(DenseMapDict::iterator iterator) : dense_map_iterator(std::move(iterator)) {}
 
-        bool operator!=(const iterator& rhs) const { return it != rhs.it; }
-        bool operator==(const iterator& rhs) const { return it == rhs.it; }
-        iterator& operator++() {
-            ++it;
+        iterator(iterator&& iterator);
+
+        iterator& operator=(iterator iterator) {
+            dense_map_iterator = std::move(iterator.dense_map_iterator);
             return *this;
         }
-        std::pair<Box*, Box*> operator*() const { return std::make_pair(it->first.value, it->second); }
-        Box* first() const { return it->first.value; }
+
+        bool operator==(const iterator& rhs) const { return dense_map_iterator == rhs.dense_map_iterator; }
+        bool operator!=(const iterator& rhs) const { return !(*this == rhs); }
+        iterator& operator++() {
+            ++dense_map_iterator;
+            return *this;
+        }
+        std::pair<Box*, Box*> operator*() const { return *dense_map_iterator; }
+
+        operator const DenseMapDict::iterator&() const { return dense_map_iterator; }
     };
 
-    iterator begin() { return iterator(d.begin()); }
-    iterator end() { return iterator(d.end()); }
+#define DEFER(func)                                                                                                    \
+    do {                                                                                                               \
+        return dense_map func;                                                                                         \
+    } while (0)
 
+#define DEFER_VOID(func)                                                                                               \
+    do {                                                                                                               \
+        dense_map func;                                                                                                \
+        return;                                                                                                        \
+    } while (0)
+
+    iterator begin() { DEFER(.begin()); }
+    iterator end() { DEFER(.end()); }
+
+    iterator find(Box* k) { DEFER(.find(k)); }
+
+    size_t size() const { DEFER(.size()); }
+    Box*& operator[](Box* k) { DEFER([k]); }
+
+    void erase(Box* k) { DEFER_VOID(.erase(k)); }
+    void erase(const iterator& it) { DEFER_VOID(.erase(it)); }
+    size_t count(Box* k) { DEFER(.count(k)); }
+
+    void clear() { DEFER(.clear()); }
+    void insert(std::pair<Box*, Box*> p) { DEFER(.insert(std::move(p))); }
+    void insert(iterator start, const iterator& end) { DEFER(.insert(std::move(start), end)); }
+
+    Box* getOrNull(Box* k) { DEFER(.getOrNull(k)); }
     static void gcHandler(GCVisitor* v, Box* b);
+
+#undef DEFER
+#undef DEFER_VOID
 };
 static_assert(sizeof(BoxedDict) == sizeof(PyDictObject), "");
 

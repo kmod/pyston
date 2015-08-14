@@ -156,11 +156,11 @@ Box* min_max(Box* arg0, BoxedTuple* args, BoxedDict* kwargs, int opid) {
     Box* container;
     Box* extremVal;
 
-    if (kwargs && kwargs->d.size()) {
+    if (kwargs && kwargs->size()) {
         static BoxedString* key_str = static_cast<BoxedString*>(PyString_InternFromString("key"));
-        auto it = kwargs->d.find(key_str);
-        if (it != kwargs->d.end() && kwargs->d.size() == 1) {
-            key_func = it->second;
+        auto it = kwargs->find(key_str);
+        if (it != kwargs->end() && kwargs->size() == 1) {
+            key_func = (*it).second;
         } else {
             if (opid == Py_LT)
                 raiseExcHelper(TypeError, "min() got an unexpected keyword argument");
@@ -1187,22 +1187,22 @@ Box* print(BoxedTuple* args, BoxedDict* kwargs) {
     static BoxedString* end_str = internStringImmortal("end");
     static BoxedString* space_str = internStringImmortal(" ");
 
-    BoxedDict::DictMap::iterator it;
-    if (kwargs && ((it = kwargs->d.find(file_str)) != kwargs->d.end())) {
-        dest = it->second;
-        kwargs->d.erase(it);
+    BoxedDict::iterator it = kwargs->end();
+    if (kwargs && ((it = kwargs->find(file_str)) != kwargs->end())) {
+        dest = (*it).second;
+        kwargs->erase(it);
     } else {
         dest = getSysStdout();
     }
 
-    if (kwargs && ((it = kwargs->d.find(end_str)) != kwargs->d.end())) {
-        end = it->second;
-        kwargs->d.erase(it);
+    if (kwargs && ((it = kwargs->find(end_str)) != kwargs->end())) {
+        end = (*it).second;
+        kwargs->erase(it);
     } else {
         end = boxString("\n");
     }
 
-    RELEASE_ASSERT(!kwargs || kwargs->d.size() == 0, "print() got unexpected keyword arguments");
+    RELEASE_ASSERT(!kwargs || kwargs->size() == 0, "print() got unexpected keyword arguments");
 
     static BoxedString* write_str = internStringImmortal("write");
     CallattrFlags callattr_flags{.cls_only = false, .null_on_nonexistent = false, .argspec = ArgPassSpec(1) };

@@ -351,6 +351,54 @@ gettmarg(PyObject *args, struct tm *p)
     int y;
     memset((void *) p, '\0', sizeof(struct tm));
 
+    args = PySequence_Fast(args, "");
+    if (!args)
+        return 0;
+
+    if (PySequence_Fast_GET_SIZE(args) != 9) {
+        PyErr_SetString(PyExc_ValueError,
+                        "9-tuple required");
+        return 0;
+    }
+
+    PyObject* a;
+    a = PySequence_Fast_GET_ITEM(args, 0);
+    y = PyInt_AsLong(a);
+    if (y == -1 && PyErr_Occurred())
+        return 0;
+    a = PySequence_Fast_GET_ITEM(args, 1);
+    p->tm_mon = PyInt_AsLong(a);
+    if (p->tm_mon == -1 && PyErr_Occurred())
+        return 0;
+    a = PySequence_Fast_GET_ITEM(args, 2);
+    p->tm_mday = PyInt_AsLong(a);
+    if (p->tm_mday == -1 && PyErr_Occurred())
+        return 0;
+    a = PySequence_Fast_GET_ITEM(args, 3);
+    p->tm_hour = PyInt_AsLong(a);
+    if (p->tm_hour == -1 && PyErr_Occurred())
+        return 0;
+    a = PySequence_Fast_GET_ITEM(args, 4);
+    p->tm_min = PyInt_AsLong(a);
+    if (p->tm_min == -1 && PyErr_Occurred())
+        return 0;
+    a = PySequence_Fast_GET_ITEM(args, 5);
+    p->tm_sec = PyInt_AsLong(a);
+    if (p->tm_sec == -1 && PyErr_Occurred())
+        return 0;
+    a = PySequence_Fast_GET_ITEM(args, 6);
+    p->tm_wday = PyInt_AsLong(a);
+    if (p->tm_wday == -1 && PyErr_Occurred())
+        return 0;
+    a = PySequence_Fast_GET_ITEM(args, 7);
+    p->tm_yday = PyInt_AsLong(a);
+    if (p->tm_yday == -1 && PyErr_Occurred())
+        return 0;
+    a = PySequence_Fast_GET_ITEM(args, 8);
+    p->tm_isdst = PyInt_AsLong(a);
+    if (p->tm_isdst == -1 && PyErr_Occurred())
+        return 0;
+    /*
     if (!PyArg_Parse(args, "(iiiiiiiii)",
                      &y,
                      &p->tm_mon,
@@ -362,6 +410,7 @@ gettmarg(PyObject *args, struct tm *p)
                      &p->tm_yday,
                      &p->tm_isdst))
         return 0;
+        */
     if (y < 1900) {
         PyObject *accept = PyDict_GetItemString(moddict,
                                                 "accept2dyear");

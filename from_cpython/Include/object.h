@@ -696,6 +696,8 @@ manually remove this flag though!
 #define Py_TPFLAGS_BASE_EXC_SUBCLASS    (1L<<30)
 #define Py_TPFLAGS_TYPE_SUBCLASS        (1L<<31)
 
+#define Py_TPFLAGS_ONLY_NEWSTYLE        (1L<<32)
+
 #define Py_TPFLAGS_DEFAULT_EXTERNAL ( \
                  Py_TPFLAGS_HAVE_GETCHARBUFFER | \
                  Py_TPFLAGS_HAVE_SEQUENCE_IN | \

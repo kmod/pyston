@@ -3199,12 +3199,18 @@ void commonClassSetup(BoxedClass* cls) {
     assert(cls->tp_mro);
     assert(cls->tp_mro->cls == tuple_cls);
 
+    bool only_newstyle = true;
     for (auto b : *static_cast<BoxedTuple*>(cls->tp_mro)) {
         if (b == cls)
             continue;
         if (PyType_Check(b))
             inherit_slots(cls, static_cast<BoxedClass*>(b));
+        else
+            only_newstyle = false;
     }
+
+    if (only_newstyle)
+        cls->tp_flags |= Py_TPFLAGS_ONLY_NEWSTYLE;
 
     assert(cls->tp_dict && cls->tp_dict->cls == attrwrapper_cls);
 }

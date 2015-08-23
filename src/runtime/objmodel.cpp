@@ -735,9 +735,6 @@ Box* Box::getattr(BoxedString* attr, GetattrRewriteArgs* rewrite_args) {
     if (rewrite_args && !rewrite_args->obj_shape_guarded)
         rewrite_args->obj->addAttrGuard(offsetof(Box, cls), (intptr_t)cls);
 
-    if (this->cls == type_cls)
-        return getattrWithHCAttrs(attr, &static_cast<BoxedClass*>(this)->attrs, rewrite_args);
-
 #if 0
     if (attr.data()[0] == '_' && attr.data()[1] == '_') {
         // Only do this logging for potentially-avoidable cases:
@@ -996,8 +993,15 @@ Box* typeLookup(BoxedClass* cls, BoxedString* attr, GetattrRewriteArgs* rewrite_
     } else {
         assert(attr->interned_state != SSTATE_NOT_INTERNED);
 
+#if 0
+        std::string per_name_stat_name = "zzz_getattr__" + std::string(cls->tp_name);
+        uint64_t* counter = Stats::getStatCounter(per_name_stat_name);
+        Stats::log(counter);
+#endif
+
         assert(cls->tp_mro);
         assert(cls->tp_mro->cls == tuple_cls);
+        bool only_newstyle = PyType_HasFeature(cls, Py_TPFLAGS_ONLY_NEWSTYLE);
         for (auto b : *static_cast<BoxedTuple*>(cls->tp_mro)) {
             // object_cls will get checked very often, but it only
             // has attributes that start with an underscore.
@@ -1008,7 +1012,11 @@ Box* typeLookup(BoxedClass* cls, BoxedString* attr, GetattrRewriteArgs* rewrite_
                 }
             }
 
-            val = b->getattr(attr, NULL);
+            if (only_newstyle) {
+                assert(PyType_Check(b));
+                val = b->getattrWithHCAttrs(attr, &static_cast<BoxedClass*>(b)->attrs, NULL);
+            } else
+                val = b->getattr(attr, NULL);
             if (val)
                 return val;
         }

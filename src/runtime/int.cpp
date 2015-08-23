@@ -1029,6 +1029,8 @@ template <ExceptionStyle S> static Box* _intNew(Box* val, Box* base) noexcept(S 
         if (base)
             raiseExcHelper(TypeError, "TypeError: int() can't convert non-string with explicit base");
         static BoxedString* int_str = internStringImmortal("__int__");
+        static StatCounter _sc("slowpath_callattr_int");
+        _sc.log();
         Box* r = callattrInternal<S>(val, int_str, CLASS_ONLY, NULL, ArgPassSpec(0), NULL, NULL, NULL, NULL, NULL);
 
         if (!r) {

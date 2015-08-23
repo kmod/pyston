@@ -285,6 +285,9 @@ void ICInfo::clear(ICSlotInfo* icentry) {
 }
 
 bool ICInfo::shouldAttempt() {
+    if (FORCE_REWRITING)
+        return true;
+
     if (retry_in) {
         retry_in--;
         return false;

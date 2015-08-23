@@ -361,6 +361,8 @@ extern "C" BoxedFunctionBase::BoxedFunctionBase(CLFunction* f)
         Box* globals_for_name = f->source->parent_module;
 
         static BoxedString* name_str = internStringImmortal("__name__");
+        static StatCounter slowpath_box_getattr_newfunction("slowpath_box_getattr_newfunction");
+        slowpath_box_getattr_newfunction.log();
         this->modname = globals_for_name->getattr(name_str);
         this->doc = f->source->getDocString();
     } else {
@@ -401,6 +403,8 @@ extern "C" BoxedFunctionBase::BoxedFunctionBase(CLFunction* f, std::initializer_
 
         static BoxedString* name_str = internStringImmortal("__name__");
         if (globals_for_name->cls == module_cls) {
+            static StatCounter slowpath_box_getattr_newfunction("slowpath_box_getattr_newfunction");
+            slowpath_box_getattr_newfunction.log();
             this->modname = globals_for_name->getattr(name_str);
         } else {
             this->modname = PyDict_GetItem(globals_for_name, name_str);
@@ -901,6 +905,8 @@ static Box* typeCallInner(CallRewriteArgs* rewrite_args, ArgPassSpec argspec, Bo
     if (rewrite_args) {
         GetattrRewriteArgs grewrite_args(rewrite_args->rewriter, r_ccls, rewrite_args->destination);
         // TODO: if tp_new != Py_CallPythonNew, call that instead?
+        static StatCounter _sc("slowpath_typelookup_typecall_new");
+        _sc.log();
         new_attr = typeLookup(cls, new_str, &grewrite_args);
 
         if (!grewrite_args.out_success)
@@ -928,6 +934,8 @@ static Box* typeCallInner(CallRewriteArgs* rewrite_args, ArgPassSpec argspec, Bo
             }
         }
     } else {
+        static StatCounter _sc("slowpath_typelookup_typecall_new");
+        _sc.log();
         new_attr = typeLookup(cls, new_str, NULL);
         try {
             if (new_attr->cls != function_cls) // optimization
@@ -1041,6 +1049,8 @@ static Box* typeCallInner(CallRewriteArgs* rewrite_args, ArgPassSpec argspec, Bo
     if (cls->tp_init == slot_tp_init) {
         // If there's a Python-level tp_init, try getting it, since calling it might be faster than calling
         // tp_init if we can manage to rewrite it.
+        static StatCounter _sc("slowpath_typelookup_typecall_init");
+        _sc.log();
         if (rewrite_args && which_init != UNKNOWN) {
             GetattrRewriteArgs grewrite_args(rewrite_args->rewriter, r_ccls, rewrite_args->destination);
             init_attr = typeLookup(cls, init_str, &grewrite_args);
@@ -2255,6 +2265,8 @@ public:
         BoxedString* key = static_cast<BoxedString*>(_key);
         internStringMortalInplace(key);
 
+        static StatCounter slowpath_box_getattr_attrwrapper("slowpath_box_getattr_attrwrapper");
+        slowpath_box_getattr_attrwrapper.log();
         Box* cur = self->b->getattr(key);
         if (cur)
             return cur;
@@ -2272,6 +2284,8 @@ public:
         BoxedString* key = static_cast<BoxedString*>(_key);
         internStringMortalInplace(key);
 
+        static StatCounter slowpath_box_getattr_attrwrapper("slowpath_box_getattr_attrwrapper");
+        slowpath_box_getattr_attrwrapper.log();
         Box* r = self->b->getattr(key);
         if (!r)
             return def;
@@ -2288,6 +2302,8 @@ public:
         BoxedString* key = static_cast<BoxedString*>(_key);
         internStringMortalInplace(key);
 
+        static StatCounter slowpath_box_getattr_attrwrapper("slowpath_box_getattr_attrwrapper");
+        slowpath_box_getattr_attrwrapper.log();
         Box* r = self->b->getattr(key);
         if (!r)
             raiseExcHelper(KeyError, "'%s'", key->data());
@@ -2304,6 +2320,8 @@ public:
         BoxedString* key = static_cast<BoxedString*>(_key);
         internStringMortalInplace(key);
 
+        static StatCounter slowpath_box_getattr_attrwrapper("slowpath_box_getattr_attrwrapper");
+        slowpath_box_getattr_attrwrapper.log();
         Box* r = self->b->getattr(key);
         if (r) {
             self->b->delattr(key, NULL);
@@ -2325,6 +2343,8 @@ public:
         BoxedString* key = static_cast<BoxedString*>(_key);
         internStringMortalInplace(key);
 
+        static StatCounter slowpath_box_getattr_attrwrapper("slowpath_box_getattr_attrwrapper");
+        slowpath_box_getattr_attrwrapper.log();
         if (self->b->getattr(key))
             self->b->delattr(key, NULL);
         else
@@ -2366,6 +2386,8 @@ public:
         BoxedString* key = static_cast<BoxedString*>(_key);
         internStringMortalInplace(key);
 
+        static StatCounter slowpath_box_getattr_attrwrapper("slowpath_box_getattr_attrwrapper");
+        slowpath_box_getattr_attrwrapper.log();
         Box* r = self->b->getattr(key);
         return r ? True : False;
     }
@@ -3119,6 +3141,8 @@ extern "C" void PyObject_InitHcAttrs(HCAttrs* attrs) noexcept {
 }
 
 extern "C" PyObject* PyObject_GetHcAttrString(PyObject* obj, const char* attr) PYSTON_NOEXCEPT {
+    static StatCounter slowpath_box_getattr_pyattrwrapper("slowpath_box_getattr_pyattrwrapper");
+    slowpath_box_getattr_pyattrwrapper.log();
     return obj->getattr(internStringMortal(attr));
 }
 extern "C" int PyObject_SetHcAttrString(PyObject* obj, const char* attr, PyObject* val) PYSTON_NOEXCEPT {

@@ -28,6 +28,8 @@ BoxedClass* classobj_cls, *instance_cls;
 }
 
 static Box* classLookup(BoxedClassobj* cls, BoxedString* attr) {
+    static StatCounter slowpath_box_getattr_classlookup("slowpath_box_getattr_classlookup");
+    slowpath_box_getattr_classlookup.log();
     Box* r = cls->getattr(attr);
     if (r)
         return r;
@@ -254,6 +256,8 @@ Box* classobjStr(Box* _obj) {
 
 // Analogous to CPython's instance_getattr2
 static Box* instanceGetattributeSimple(BoxedInstance* inst, BoxedString* attr_str) {
+    static StatCounter slowpath_box_getattr_instancegetattribute("slowpath_box_getattr_instancegetattribute");
+    slowpath_box_getattr_instancegetattribute.log();
     Box* r = inst->getattr(attr_str);
     if (r)
         return r;

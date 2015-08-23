@@ -484,6 +484,8 @@ static PyObject* lookup_maybe(PyObject* self, const char* attrstr, PyObject** at
             return NULL;
     }
 
+    static StatCounter _sc("slowpath_typelookup_lookup_maybe");
+    _sc.log();
     Box* obj = typeLookup(self->cls, (BoxedString*)*attrobj, NULL);
     if (obj) {
         try {
@@ -905,6 +907,8 @@ Box* slotTpGetattrHookInternal(Box* self, BoxedString* name, GetattrRewriteArgs*
     // - if we never get to the "call __getattr__" portion and the "calling __getattribute__"
     //   portion still has its guards pass, then that section is still behaviorally correct, and
     //   I think should be close to as fast as the normal rewritten version we would generate.
+    static StatCounter _sc("slowpath_typelookup_tpgetattrhook");
+    _sc.log();
     getattr = typeLookup(self->cls, _getattr_str, NULL);
 
     if (getattr == NULL) {
@@ -925,6 +929,7 @@ Box* slotTpGetattrHookInternal(Box* self, BoxedString* name, GetattrRewriteArgs*
          needed, with call_attribute. */
     static BoxedString* _getattribute_str = internStringImmortal("__getattribute__");
 
+    _sc.log();
     RewriterVar* r_getattribute = NULL;
     if (rewrite_args) {
         RewriterVar* r_obj_cls = rewrite_args->obj->getAttr(offsetof(Box, cls), Location::any());
@@ -1799,6 +1804,8 @@ static const slotdef* update_one_slot(BoxedClass* type, const slotdef* p) noexce
     }
 
     do {
+        static StatCounter _sc("slowpath_typelookup_update_one_slot");
+        _sc.log();
         descr = typeLookup(type, p->name_strobj, NULL);
 
         if (p->flags & PyWrapperFlag_BOOL) {
@@ -2022,6 +2029,8 @@ void add_operators(BoxedClass* cls) noexcept {
 
         if (!ptr || !*ptr)
             continue;
+        static StatCounter slowpath_box_getattr_addoperators("slowpath_box_getattr_addoperators");
+        slowpath_box_getattr_addoperators.log();
         if (cls->getattr(p.name_strobj))
             continue;
 

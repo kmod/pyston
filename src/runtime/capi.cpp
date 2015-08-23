@@ -220,6 +220,8 @@ extern "C" PyObject* PyObject_GetAttr(PyObject* o, PyObject* attr) noexcept {
     BoxedString* s = static_cast<BoxedString*>(attr);
     internStringMortalInplace(s);
 
+    static StatCounter _sc2("slowpath_getattrinternal_pyobjectgetattr");
+    _sc2.log();
     Box* r = getattrInternal<ExceptionStyle::CAPI>(o, s, NULL);
 
     if (!r && !PyErr_Occurred()) {
@@ -234,6 +236,8 @@ extern "C" PyObject* PyObject_GenericGetAttr(PyObject* o, PyObject* name) noexce
     try {
         BoxedString* s = static_cast<BoxedString*>(name);
         internStringMortalInplace(s);
+        static StatCounter _sc2("slowpath_getattrinternal_pyobjectgenericgetattr");
+        _sc2.log();
         Box* r = getattrInternalGeneric(o, s, NULL, false, false, NULL, NULL);
         if (!r)
             PyErr_Format(PyExc_AttributeError, "'%.50s' object has no attribute '%.400s'", o->cls->tp_name,

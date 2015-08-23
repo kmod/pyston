@@ -281,6 +281,8 @@ static Box* getParent(Box* globals, int level, std::string& buf) {
         return None;
 
     static BoxedString* package_str = internStringImmortal("__package__");
+    static StatCounter slowpath_box_getattr_import_getparent("slowpath_box_getattr_import_getparent");
+    slowpath_box_getattr_import_getparent.log();
     BoxedString* pkgname = static_cast<BoxedString*>(getFromGlobals(globals, package_str));
     if (pkgname != NULL && pkgname != None) {
         /* __package__ is set, so use it */

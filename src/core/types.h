@@ -552,6 +552,7 @@ public:
     // object's attribute storage. it doesn't look at other objects or do any descriptor logic.
     Box* getattr(BoxedString* attr, GetattrRewriteArgs* rewrite_args);
     Box* getattr(BoxedString* attr) { return getattr(attr, NULL); }
+    Box* getattrWithHCAttrs(BoxedString* attr, HCAttrs* attrs_ptr, GetattrRewriteArgs* rewrite_args);
     bool hasattr(BoxedString* attr) { return getattr(attr) != NULL; }
     void delattr(BoxedString* attr, DelattrRewriteArgs* rewrite_args);
 

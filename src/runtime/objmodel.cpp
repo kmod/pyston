@@ -660,6 +660,67 @@ BoxedDict* Box::getDict() {
     return d;
 }
 
+Box* Box::getattrWithHCAttrs(BoxedString* attr, HCAttrs* attrs, GetattrRewriteArgs* rewrite_args) {
+    HiddenClass* hcls = attrs->hcls;
+
+    if (unlikely(hcls->type == HiddenClass::DICT_BACKED)) {
+        if (rewrite_args)
+            assert(!rewrite_args->out_success);
+        rewrite_args = NULL;
+        Box* d = attrs->attr_list->attrs[0];
+        assert(d);
+        assert(attr->data()[attr->size()] == '\0');
+        Box* r = PyDict_GetItem(d, attr);
+        // r can be NULL if the item didn't exist
+        return r;
+    }
+
+    assert(hcls->type == HiddenClass::NORMAL || hcls->type == HiddenClass::SINGLETON);
+
+    if (unlikely(rewrite_args)) {
+        if (!rewrite_args->obj_hcls_guarded) {
+            if (cls->attrs_offset < 0) {
+                REWRITE_ABORTED("");
+                rewrite_args = NULL;
+            } else {
+                if (!(rewrite_args->obj->isConstant() && cls == type_cls
+                      && static_cast<BoxedClass*>(this)->is_constant)) {
+                    rewrite_args->obj->addAttrGuard(cls->attrs_offset + offsetof(HCAttrs, hcls), (intptr_t)hcls);
+                }
+                if (hcls->type == HiddenClass::SINGLETON)
+                    hcls->addDependence(rewrite_args->rewriter);
+            }
+        }
+    }
+
+    int offset = hcls->getOffset(attr);
+    if (offset == -1) {
+        if (rewrite_args) {
+            rewrite_args->out_success = true;
+        }
+        return NULL;
+    }
+
+    if (rewrite_args) {
+        if (cls->attrs_offset < 0) {
+            REWRITE_ABORTED("");
+            rewrite_args = NULL;
+        } else {
+            RewriterVar* r_attrs
+                = rewrite_args->obj->getAttr(cls->attrs_offset + offsetof(HCAttrs, attr_list), Location::any());
+            rewrite_args->out_rtn
+                = r_attrs->getAttr(offset * sizeof(Box*) + offsetof(HCAttrs::AttrList, attrs), Location::any());
+        }
+    }
+
+    if (rewrite_args) {
+        rewrite_args->out_success = true;
+    }
+
+    Box* rtn = attrs->attr_list->attrs[offset];
+    return rtn;
+}
+
 static StatCounter box_getattr_slowpath("slowpath_box_getattr");
 Box* Box::getattr(BoxedString* attr, GetattrRewriteArgs* rewrite_args) {
     assert(attr->interned_state != SSTATE_NOT_INTERNED);
@@ -673,6 +734,9 @@ Box* Box::getattr(BoxedString* attr, GetattrRewriteArgs* rewrite_args) {
     // so that it can still be a single guard rather than multiple.
     if (rewrite_args && !rewrite_args->obj_shape_guarded)
         rewrite_args->obj->addAttrGuard(offsetof(Box, cls), (intptr_t)cls);
+
+    if (this->cls == type_cls)
+        return getattrWithHCAttrs(attr, &static_cast<BoxedClass*>(this)->attrs, rewrite_args);
 
 #if 0
     if (attr.data()[0] == '_' && attr.data()[1] == '_') {
@@ -698,65 +762,7 @@ Box* Box::getattr(BoxedString* attr, GetattrRewriteArgs* rewrite_args) {
     // structure (ex user class) and the same hidden classes, because
     // otherwise the guard will fail anyway.;
     if (cls->instancesHaveHCAttrs()) {
-        HCAttrs* attrs = getHCAttrsPtr();
-        HiddenClass* hcls = attrs->hcls;
-
-        if (unlikely(hcls->type == HiddenClass::DICT_BACKED)) {
-            if (rewrite_args)
-                assert(!rewrite_args->out_success);
-            rewrite_args = NULL;
-            Box* d = attrs->attr_list->attrs[0];
-            assert(d);
-            assert(attr->data()[attr->size()] == '\0');
-            Box* r = PyDict_GetItem(d, attr);
-            // r can be NULL if the item didn't exist
-            return r;
-        }
-
-        assert(hcls->type == HiddenClass::NORMAL || hcls->type == HiddenClass::SINGLETON);
-
-        if (unlikely(rewrite_args)) {
-            if (!rewrite_args->obj_hcls_guarded) {
-                if (cls->attrs_offset < 0) {
-                    REWRITE_ABORTED("");
-                    rewrite_args = NULL;
-                } else {
-                    if (!(rewrite_args->obj->isConstant() && cls == type_cls
-                          && static_cast<BoxedClass*>(this)->is_constant)) {
-                        rewrite_args->obj->addAttrGuard(cls->attrs_offset + offsetof(HCAttrs, hcls), (intptr_t)hcls);
-                    }
-                    if (hcls->type == HiddenClass::SINGLETON)
-                        hcls->addDependence(rewrite_args->rewriter);
-                }
-            }
-        }
-
-        int offset = hcls->getOffset(attr);
-        if (offset == -1) {
-            if (rewrite_args) {
-                rewrite_args->out_success = true;
-            }
-            return NULL;
-        }
-
-        if (rewrite_args) {
-            if (cls->attrs_offset < 0) {
-                REWRITE_ABORTED("");
-                rewrite_args = NULL;
-            } else {
-                RewriterVar* r_attrs
-                    = rewrite_args->obj->getAttr(cls->attrs_offset + offsetof(HCAttrs, attr_list), Location::any());
-                rewrite_args->out_rtn
-                    = r_attrs->getAttr(offset * sizeof(Box*) + offsetof(HCAttrs::AttrList, attrs), Location::any());
-            }
-        }
-
-        if (rewrite_args) {
-            rewrite_args->out_success = true;
-        }
-
-        Box* rtn = attrs->attr_list->attrs[offset];
-        return rtn;
+        return this->getattrWithHCAttrs(attr, this->getHCAttrsPtr(), rewrite_args);
     }
 
     if (cls->instancesHaveDictAttrs()) {

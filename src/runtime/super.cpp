@@ -100,6 +100,8 @@ Box* superGetattribute(Box* _s, Box* _attr) {
                 continue;
             res = PyDict_GetItem(dict, name);
 #endif
+            static StatCounter slowpath_box_getattr_supergetattr("slowpath_box_getattr_supergetattr");
+            slowpath_box_getattr_supergetattr.log();
             res = tmp->getattr(attr);
 
             if (res != NULL) {
@@ -166,6 +168,8 @@ BoxedClass* supercheck(BoxedClass* type, Box* obj) {
     }
 
     static BoxedString* class_str = internStringImmortal("__class__");
+    static StatCounter slowpath_box_getattr_supercheck("slowpath_box_getattr_supercheck");
+    slowpath_box_getattr_supercheck.log();
     Box* class_attr = obj->getattr(class_str);
     if (class_attr && PyType_Check(class_attr) && class_attr != obj->cls) {
         Py_FatalError("warning: this path never tested"); // blindly copied from CPython

@@ -39,7 +39,7 @@ bool DUMPJIT = false;
 bool TRAP = false;
 bool USE_STRIPPED_STDLIB = true; // always true
 bool ENABLE_INTERPRETER = true;
-bool ENABLE_BASELINEJIT = true;
+bool ENABLE_BASELINEJIT = 0;
 bool ENABLE_PYPA_PARSER = true;
 bool USE_REGALLOC_BASIC = true;
 bool PAUSE_AT_ABORT = false;
@@ -49,6 +49,7 @@ bool ENABLE_TRACEBACKS = true;
 // is for the exceptions it will throw.
 bool FORCE_LLVM_CAPI_CALLS = false;
 bool FORCE_LLVM_CAPI_THROWS = false;
+bool FORCE_REWRITING = false;
 
 int OSR_THRESHOLD_INTERPRETER = 25;
 int REOPT_THRESHOLD_INTERPRETER = 25;

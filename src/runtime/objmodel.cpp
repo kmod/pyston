@@ -222,17 +222,22 @@ extern "C" void printHelper(Box* dest, Box* var, bool nl) {
     static BoxedString* newline_str = internStringImmortal("\n");
     static BoxedString* space_str = internStringImmortal(" ");
 
+    static StatCounter _sc("slowpath_callattr_printhelper");
     if (var) {
         // begin code for handling of softspace
         bool new_softspace = !nl;
-        if (softspace(dest, new_softspace))
+        if (softspace(dest, new_softspace)) {
+            _sc.log();
             callattrInternal<CXX>(dest, write_str, CLASS_OR_INST, 0, ArgPassSpec(1), space_str, 0, 0, 0, 0);
+        }
 
         Box* str_or_unicode_var = (var->cls == unicode_cls) ? var : str(var);
+        _sc.log();
         callattrInternal<CXX>(dest, write_str, CLASS_OR_INST, 0, ArgPassSpec(1), str_or_unicode_var, 0, 0, 0, 0);
     }
 
     if (nl) {
+        _sc.log();
         callattrInternal<CXX>(dest, write_str, CLASS_OR_INST, 0, ArgPassSpec(1), newline_str, 0, 0, 0, 0);
         if (!var)
             softspace(dest, false);
@@ -949,7 +954,11 @@ extern "C" PyObject* _PyType_Lookup(PyTypeObject* type, PyObject* name) noexcept
     }
 }
 
+static StatCounter box_getattr_slowpath_typelookup("slowpath_box_getattr_typelookup");
+static StatCounter slowpath_typelookup("slowpath_typelookup");
+Box* typeLookup(BoxedClass* cls, BoxedString* attr, GetattrRewriteArgs* rewrite_args) __attribute__((noinline));
 Box* typeLookup(BoxedClass* cls, BoxedString* attr, GetattrRewriteArgs* rewrite_args) {
+    slowpath_typelookup.log();
     Box* val;
 
     if (rewrite_args) {
@@ -983,6 +992,7 @@ Box* typeLookup(BoxedClass* cls, BoxedString* attr, GetattrRewriteArgs* rewrite_
                 // (at least the kind of "shape" that Box::getattr is referring to)
                 rewrite_args->obj_shape_guarded = true;
             }
+            box_getattr_slowpath_typelookup.log();
             val = base->getattr(attr, rewrite_args);
             assert(rewrite_args->out_success);
             if (val)
@@ -1008,6 +1018,7 @@ Box* typeLookup(BoxedClass* cls, BoxedString* attr, GetattrRewriteArgs* rewrite_
                 }
             }
 
+            box_getattr_slowpath_typelookup.log();
             val = b->getattr(attr, NULL);
             if (val)
                 return val;
@@ -1638,6 +1649,10 @@ Box* getattrInternalGeneric(Box* obj, BoxedString* attr, GetattrRewriteArgs* rew
     // be a descriptor).
     Box* descr = NULL;
     RewriterVar* r_descr = NULL;
+    static StatCounter _sc("slowpath_typelookup_getattrinternal");
+    _sc.log();
+    static StatCounter _sc2("slowpath_getattrinternal");
+    _sc2.log();
     if (rewrite_args) {
         RewriterVar* r_obj_cls = rewrite_args->obj->getAttr(offsetof(Box, cls), Location::any());
         GetattrRewriteArgs grewrite_args(rewrite_args->rewriter, r_obj_cls, rewrite_args->destination);
@@ -1786,6 +1801,8 @@ Box* getattrInternalGeneric(Box* obj, BoxedString* attr, GetattrRewriteArgs* rew
 
             Box* val;
             RewriterVar* r_val = NULL;
+            static StatCounter slowpath_box_getattr_getattrinternal_inst("slowpath_box_getattr_getattrinternal_inst");
+            slowpath_box_getattr_getattrinternal_inst.log();
             if (rewrite_args) {
                 GetattrRewriteArgs hrewrite_args(rewrite_args->rewriter, rewrite_args->obj, rewrite_args->destination);
                 val = obj->getattr(attr, &hrewrite_args);
@@ -1995,10 +2012,10 @@ template <ExceptionStyle S> Box* _getattrEntry(Box* obj, BoxedString* attr, void
 
     std::unique_ptr<Rewriter> rewriter(Rewriter::createRewriter(return_addr, 2, "getattr"));
 
-#if 0 && STAT_TIMERS
-    static uint64_t* st_id = Stats::getStatCounter("us_timer_slowpath_getattr_patchable");
-    static uint64_t* st_id_nopatch = Stats::getStatCounter("us_timer_slowpath_getattr_nopatch");
-    static uint64_t* st_id_megamorphic = Stats::getStatCounter("us_timer_slowpath_getattr_megamorphic");
+#if 0
+    static uint64_t* st_id = Stats::getStatCounter("zzz_slowpath_getattr_patchable");
+    static uint64_t* st_id_nopatch = Stats::getStatCounter("zzz_slowpath_getattr_nopatch");
+    static uint64_t* st_id_megamorphic = Stats::getStatCounter("zzz_slowpath_getattr_megamorphic");
     ICInfo* icinfo = getICInfo(return_addr);
     uint64_t* counter;
     if (!icinfo)
@@ -2015,7 +2032,8 @@ template <ExceptionStyle S> Box* _getattrEntry(Box* obj, BoxedString* attr, void
 
     if (icinfo && icinfo->start_addr == (void*)0x2aaaadb1477b)
         printf("");
-    ScopedStatTimer st(counter, 10);
+    (*counter)++;
+    //ScopedStatTimer st(counter, 10);
 #endif
 
     if (unlikely(rewriter.get() && rewriter->aggressiveness() < 5)) {
@@ -2042,6 +2060,8 @@ template <ExceptionStyle S> Box* _getattrEntry(Box* obj, BoxedString* attr, void
     };
 
     Box* val;
+    static StatCounter _sc2("slowpath_getattrinternal_getattrentry");
+    _sc2.log();
     if (rewriter.get()) {
         Location dest;
         TypeRecorder* recorder = rewriter->getTypeRecorder();
@@ -2161,6 +2181,8 @@ void setattrGeneric(Box* obj, BoxedString* attr, Box* val, SetattrRewriteArgs* r
         }
     }
 
+    static StatCounter _sc("slowpath_typelookup_setattrgeneric");
+    _sc.log();
     // Lookup a descriptor
     Box* descr = NULL;
     RewriterVar* r_descr = NULL;
@@ -2501,6 +2523,8 @@ extern "C" BoxedString* str(Box* obj) {
     if (obj->cls != str_cls) {
         // TODO could do an IC optimization here (once we do rewrites here at all):
         // if __str__ is objectStr, just guard on that and call repr directly.
+        static StatCounter _sc("slowpath_callattr_str");
+        _sc.log();
         obj = callattrInternal<CXX>(obj, str_box, CLASS_ONLY, NULL, ArgPassSpec(0), NULL, NULL, NULL, NULL, NULL);
     }
 
@@ -2530,6 +2554,8 @@ extern "C" BoxedString* repr(Box* obj) {
     slowpath_repr.log();
 
     static BoxedString* repr_box = internStringImmortal(repr_str.c_str());
+    static StatCounter _sc("slowpath_callattr_repr");
+    _sc.log();
     obj = callattrInternal<CXX>(obj, repr_box, CLASS_ONLY, NULL, ArgPassSpec(0), NULL, NULL, NULL, NULL, NULL);
 
     if (isSubclass(obj->cls, unicode_cls)) {
@@ -2657,6 +2683,8 @@ template <ExceptionStyle S> BoxedInt* lenInternal(Box* obj, LenRewriteArgs* rewr
         return (BoxedInt*)boxInt(r);
     }
 
+    static StatCounter _sc("slowpath_callattr_len");
+    _sc.log();
     Box* rtn;
     try {
         if (rewrite_args) {
@@ -2774,6 +2802,8 @@ Box* callattrInternal(Box* obj, BoxedString* attr, LookupScope scope, CallRewrit
                       const std::vector<BoxedString*>* keyword_names) noexcept(S == CAPI) {
     assert(gc::isValidGCObject(attr));
 
+    static StatCounter _sc("slowpath_callattr");
+    _sc.log();
     int npassed_args = argspec.totalPassed();
 
     if (rewrite_args && !rewrite_args->args_guarded) {
@@ -2810,6 +2840,8 @@ Box* callattrInternal(Box* obj, BoxedString* attr, LookupScope scope, CallRewrit
     RewriterVar* r_bind_obj = NULL;
     Box* val;
     RewriterVar* r_val = NULL;
+    static StatCounter _sc2("slowpath_getattrinternal_callattr");
+    _sc2.log();
     if (rewrite_args) {
         GetattrRewriteArgs grewrite_args(rewrite_args->rewriter, rewrite_args->obj, Location::any());
         val = getattrInternalEx<S>(obj, attr, &grewrite_args, scope == CLASS_ONLY, true, &bind_obj, &r_bind_obj);
@@ -2890,6 +2922,7 @@ Box* callattrInternal(Box* obj, BoxedString* attr, LookupScope scope, CallRewrit
     return runtimeCallInternal<S>(val, rewrite_args, argspec, arg1, arg2, arg3, args, keyword_names);
 }
 
+static int n = 0;
 template <ExceptionStyle S>
 Box* _callattrEntry(Box* obj, BoxedString* attr, CallattrFlags flags, Box* arg1, Box* arg2, Box* arg3, Box** args,
                     const std::vector<BoxedString*>* keyword_names, void* return_addr) {
@@ -2898,10 +2931,10 @@ Box* _callattrEntry(Box* obj, BoxedString* attr, CallattrFlags flags, Box* arg1,
     if (S == CAPI)
         assert(!flags.null_on_nonexistent);
 
-#if 0 && STAT_TIMERS
-    static uint64_t* st_id = Stats::getStatCounter("us_timer_slowpath_callattr_patchable");
-    static uint64_t* st_id_nopatch = Stats::getStatCounter("us_timer_slowpath_callattr_nopatch");
-    static uint64_t* st_id_megamorphic = Stats::getStatCounter("us_timer_slowpath_callattr_megamorphic");
+#if 1
+    static uint64_t* st_id = Stats::getStatCounter("zzz_slowpath_callattr_patchable");
+    static uint64_t* st_id_nopatch = Stats::getStatCounter("zzz_slowpath_callattr_nopatch");
+    static uint64_t* st_id_megamorphic = Stats::getStatCounter("zzz_slowpath_callattr_megamorphic");
     ICInfo* icinfo = getICInfo(return_addr);
     uint64_t* counter;
     if (!icinfo)
@@ -2909,10 +2942,11 @@ Box* _callattrEntry(Box* obj, BoxedString* attr, CallattrFlags flags, Box* arg1,
     else if (icinfo->isMegamorphic())
         counter = st_id_megamorphic;
     else {
-        //counter = Stats::getStatCounter("us_timer_slowpath_callattr_patchable_" + std::string(obj->cls->tp_name));
-        counter = Stats::getStatCounter("us_timer_slowpath_callattr_patchable_" + std::string(attr->s()));
+        // counter = Stats::getStatCounter("zzz_slowpath_callattr_patchable_" + std::string(obj->cls->tp_name));
+        // counter = Stats::getStatCounter("zzz_slowpath_callattr_patchable_" + std::string(attr->s()));
+        counter = Stats::getStatCounter("zzz_slowpath_callattr_patchable");
     }
-    ScopedStatTimer st(counter, 10);
+    (*counter)++;
 #endif
 
     ASSERT(gc::isValidGCObject(obj), "%p", obj);
@@ -2920,8 +2954,8 @@ Box* _callattrEntry(Box* obj, BoxedString* attr, CallattrFlags flags, Box* arg1,
     ArgPassSpec argspec(flags.argspec);
     int npassed_args = argspec.totalPassed();
 
-    static StatCounter slowpath_callattr("slowpath_callattr");
-    slowpath_callattr.log();
+    // static StatCounter slowpath_callattr("slowpath_callattr");
+    // slowpath_callattr.log();
 
     assert(attr);
 
@@ -2935,6 +2969,11 @@ Box* _callattrEntry(Box* obj, BoxedString* attr, CallattrFlags flags, Box* arg1,
     std::unique_ptr<Rewriter> rewriter(Rewriter::createRewriter(return_addr, num_orig_args, "callattr"));
     Box* rtn;
 
+    if (icinfo && !icinfo->isMegamorphic() && !rewriter.get()) {
+        static StatCounter sc("zzz_slowpath_callattr_patchable_skipped");
+        sc.log();
+    }
+
     LookupScope scope = flags.cls_only ? CLASS_ONLY : CLASS_OR_INST;
 
     if (attr->data()[0] == '_' && attr->data()[1] == '_' && PyInstance_Check(obj)) {
@@ -2943,6 +2982,8 @@ Box* _callattrEntry(Box* obj, BoxedString* attr, CallattrFlags flags, Box* arg1,
             scope = CLASS_OR_INST;
     }
 
+    static StatCounter _sc("slowpath_callattr_callattrentry");
+    _sc.log();
     if (rewriter.get()) {
         // TODO feel weird about doing this; it either isn't necessary
         // or this kind of thing is necessary in a lot more places
@@ -2957,16 +2998,25 @@ Box* _callattrEntry(Box* obj, BoxedString* attr, CallattrFlags flags, Box* arg1,
             rewrite_args.arg3 = rewriter->getArg(5);
         if (npassed_args >= 4)
             rewrite_args.args = rewriter->getArg(6);
+        int this_n = ++n;
+
         rtn = callattrInternal<S>(obj, attr, scope, &rewrite_args, argspec, arg1, arg2, arg3, args, keyword_names);
 
         assert(!(S == CAPI && flags.null_on_nonexistent));
         if (!rewrite_args.out_success) {
             rewriter.reset(NULL);
+            static StatCounter sc("zzz_slowpath_callattr_patchable_failed");
+            sc.log();
+            printf("%d\n", this_n);
         } else if (rtn || S == CAPI) {
             rewriter->commitReturning(rewrite_args.out_rtn);
+            static StatCounter sc("zzz_slowpath_callattr_patchable_patched");
+            sc.log();
         } else if (flags.null_on_nonexistent) {
             assert(!rewrite_args.out_rtn);
             rewriter->commitReturning(rewriter->loadConst(0, rewriter->getReturnDestination()));
+            static StatCounter sc("zzz_slowpath_callattr_patchable_patched");
+            sc.log();
         }
     } else {
         rtn = callattrInternal<S>(obj, attr, scope, NULL, argspec, arg1, arg2, arg3, args, keyword_names);
@@ -4144,7 +4194,9 @@ extern "C" Box* binopInternal(Box* lhs, Box* rhs, int op_type, bool inplace, Bin
     }
 
     Box* irtn = NULL;
+    static StatCounter _sc("slowpath_callattr_binop");
     if (inplace) {
+        _sc.log();
         BoxedString* iop_name = getInplaceOpName(op_type);
         if (rewrite_args) {
             CallRewriteArgs srewrite_args(rewrite_args->rewriter, rewrite_args->lhs, rewrite_args->destination);
@@ -4174,6 +4226,7 @@ extern "C" Box* binopInternal(Box* lhs, Box* rhs, int op_type, bool inplace, Bin
 
     BoxedString* op_name = getOpName(op_type);
     Box* lrtn;
+    _sc.log();
     if (rewrite_args) {
         CallRewriteArgs srewrite_args(rewrite_args->rewriter, rewrite_args->lhs, rewrite_args->destination);
         srewrite_args.arg1 = rewrite_args->rhs;
@@ -4206,6 +4259,7 @@ extern "C" Box* binopInternal(Box* lhs, Box* rhs, int op_type, bool inplace, Bin
         REWRITE_ABORTED("");
     }
 
+    _sc.log();
     BoxedString* rop_name = getReverseOpName(op_type);
     Box* rrtn = callattrInternal1<CXX>(rhs, rop_name, CLASS_ONLY, NULL, ArgPassSpec(1), lhs);
     if (rrtn != NULL && rrtn != NotImplemented)
@@ -4419,6 +4473,8 @@ Box* compareInternal(Box* lhs, Box* rhs, int op_type, CompareRewriteArgs* rewrit
 
         Box* contained;
         RewriterVar* r_contained = NULL;
+        static StatCounter _sc("slowpath_callattr_compare");
+        _sc.log();
         if (rewrite_args) {
             CallRewriteArgs crewrite_args(rewrite_args->rewriter, rewrite_args->rhs, rewrite_args->destination);
             crewrite_args.arg1 = rewrite_args->lhs;
@@ -4525,6 +4581,8 @@ Box* compareInternal(Box* lhs, Box* rhs, int op_type, CompareRewriteArgs* rewrit
     BoxedString* op_name = getOpName(op_type);
 
     Box* lrtn;
+    static StatCounter _sc("slowpath_callattr_compare");
+    _sc.log();
     if (rewrite_args) {
         CallRewriteArgs crewrite_args(rewrite_args->rewriter, rewrite_args->lhs, rewrite_args->destination);
         crewrite_args.arg1 = rewrite_args->rhs;
@@ -4554,16 +4612,19 @@ Box* compareInternal(Box* lhs, Box* rhs, int op_type, CompareRewriteArgs* rewrit
         REWRITE_ABORTED("");
     }
 
+    _sc.log();
     BoxedString* rop_name = getReverseOpName(op_type);
     Box* rrtn = callattrInternal1<CXX>(rhs, rop_name, CLASS_ONLY, NULL, ArgPassSpec(1), lhs);
     if (rrtn != NULL && rrtn != NotImplemented)
         return rrtn;
 
+    _sc.log();
     static BoxedString* cmp_str = internStringImmortal("__cmp__");
     lrtn = callattrInternal1<CXX>(lhs, cmp_str, CLASS_ONLY, NULL, ArgPassSpec(1), rhs);
     if (lrtn && lrtn != NotImplemented) {
         return boxBool(convert3wayCompareResultToBool(lrtn, op_type));
     }
+    _sc.log();
     rrtn = callattrInternal1<CXX>(rhs, cmp_str, CLASS_ONLY, NULL, ArgPassSpec(1), lhs);
     if (rrtn && rrtn != NotImplemented) {
         bool success = false;
@@ -4659,6 +4720,8 @@ extern "C" Box* unaryop(Box* operand, int op_type) {
         Rewriter::createRewriter(__builtin_extract_return_addr(__builtin_return_address(0)), 1, "unaryop"));
 
     Box* rtn = NULL;
+    static StatCounter _sc("slowpath_callattr_unaryop");
+    _sc.log();
     if (rewriter) {
         CallRewriteArgs srewrite_args(rewriter.get(), rewriter->getArg(0), rewriter->getReturnDestination());
         rtn = callattrInternal0<CXX>(operand, op_name, CLASS_ONLY, &srewrite_args, ArgPassSpec(0));
@@ -4678,6 +4741,8 @@ extern "C" Box* unaryop(Box* operand, int op_type) {
 template <ExceptionStyle S>
 static Box* callItemAttr(Box* target, BoxedString* item_str, Box* item, Box* value,
                          CallRewriteArgs* rewrite_args) noexcept(S == CAPI) {
+    static StatCounter _sc("slowpath_callattr_callitemattr");
+    _sc.log();
     if (value) {
         return callattrInternal2<S>(target, item_str, CLASS_ONLY, rewrite_args, ArgPassSpec(2), item, value);
     } else {
@@ -4707,6 +4772,8 @@ static Box* callItemOrSliceAttr(Box* target, BoxedString* item_str, BoxedString*
         return callItemAttr<S>(target, item_str, slice, value, rewrite_args);
     }
 
+    static StatCounter _sc("slowpath_typelookup_callitemorsliceattr");
+    _sc.log();
     // Guard on the type of the object (need to have the slice operator attribute to call it).
     Box* slice_attr = NULL;
     if (rewrite_args) {
@@ -4776,6 +4843,8 @@ static Box* callItemOrSliceAttr(Box* target, BoxedString* item_str, BoxedString*
         Box* boxedStart = boxInt(start);
         Box* boxedStop = boxInt(stop);
 
+        static StatCounter _sc("slowpath_callattr_callitemattr");
+        _sc.log();
         if (value) {
             return callattrInternal3<S>(target, slice_str, CLASS_ONLY, rewrite_args, ArgPassSpec(3), boxedStart,
                                         boxedStop, value);
@@ -5085,6 +5154,8 @@ extern "C" void delattrGeneric(Box* obj, BoxedString* attr, DelattrRewriteArgs* 
     }
 
     // check if the attribute is in the instance's __dict__
+    static StatCounter slowpath_box_getattr_delattrgeneric("slowpath_box_getattr_delattrgeneric");
+    slowpath_box_getattr_delattrgeneric.log();
     Box* attrVal = obj->getattr(attr, NULL);
     if (attrVal != NULL) {
         obj->delattr(attr, NULL);
@@ -5212,6 +5283,8 @@ Box* getiter(Box* o) {
     if (PyType_HasFeature(type, Py_TPFLAGS_HAVE_ITER) && type->tp_iter != slot_tp_iter && type->tp_iter) {
         r = type->tp_iter(o);
     } else {
+        static StatCounter _sc("slowpath_callattr_getiter");
+        _sc.log();
         static BoxedString* iter_str = internStringImmortal("__iter__");
         r = callattrInternal0<CXX>(o, iter_str, LookupScope::CLASS_ONLY, NULL, ArgPassSpec(0));
     }
@@ -5612,6 +5685,8 @@ Box* typeNewGeneric(Box* _cls, Box* arg1, Box* arg2, Box** _args) {
 extern "C" void delGlobal(Box* globals, BoxedString* name) {
     if (globals->cls == module_cls) {
         BoxedModule* m = static_cast<BoxedModule*>(globals);
+        static StatCounter slowpath_box_getattr_delglobal("slowpath_box_getattr_delglobal");
+        slowpath_box_getattr_delglobal.log();
         if (!m->getattr(name)) {
             assert(name->data()[name->size()] == '\0');
             raiseExcHelper(NameError, "name '%s' is not defined", name->data());
@@ -5652,6 +5727,8 @@ extern "C" Box* getGlobal(Box* globals, BoxedString* name) {
         Box* r;
         if (globals->cls == module_cls) {
             BoxedModule* m = static_cast<BoxedModule*>(globals);
+            static StatCounter slowpath_box_getattr_getglobal("slowpath_box_getattr_getglobal");
+            slowpath_box_getattr_getglobal.log();
             if (rewriter.get()) {
                 RewriterVar* r_mod = rewriter->getArg(0);
 
@@ -5695,6 +5772,8 @@ extern "C" Box* getGlobal(Box* globals, BoxedString* name) {
         stat_builtins.log();
 
         Box* rtn;
+        static StatCounter slowpath_box_getattr_getglobal("slowpath_box_getattr_getglobal");
+        slowpath_box_getattr_getglobal.log();
         if (rewriter.get()) {
             RewriterVar* builtins = rewriter->loadConst((intptr_t)builtins_module, Location::any());
             GetattrRewriteArgs rewrite_args(rewriter.get(), builtins, rewriter->getReturnDestination());
@@ -5726,6 +5805,8 @@ Box* getFromGlobals(Box* globals, BoxedString* name) {
         RELEASE_ASSERT(globals->cls == module_cls, "%s", globals->cls->tp_name);
     }
 
+    static StatCounter slowpath_box_getattr_getfromglobals("slowpath_box_getattr_getfromglobals");
+    slowpath_box_getattr_getfromglobals.log();
     if (globals->cls == module_cls) {
         return globals->getattr(name);
     } else if (globals->cls == dict_cls) {
@@ -5756,6 +5837,8 @@ extern "C" void setGlobal(Box* globals, BoxedString* name, Box* value) {
 extern "C" Box* importFrom(Box* _m, BoxedString* name) {
     STAT_TIMER(t0, "us_timer_importFrom", 10);
 
+    static StatCounter _sc("slowpath_getattrinternal_importfrom");
+    _sc.log();
     Box* r = getattrInternal<CXX>(_m, name, NULL);
     if (r)
         return r;
@@ -5770,6 +5853,8 @@ extern "C" Box* importStar(Box* _from_module, Box* to_globals) {
     BoxedModule* from_module = static_cast<BoxedModule*>(_from_module);
 
     static BoxedString* all_str = internStringImmortal("__all__");
+    static StatCounter slowpath_box_getattr_importstar("slowpath_box_getattr_importstar");
+    slowpath_box_getattr_importstar.log();
     Box* all = from_module->getattr(all_str);
 
     if (all) {
@@ -5797,6 +5882,7 @@ extern "C" Box* importStar(Box* _from_module, Box* to_globals) {
 
             BoxedString* casted_attr_name = static_cast<BoxedString*>(attr_name);
             internStringMortalInplace(casted_attr_name);
+            slowpath_box_getattr_importstar.log();
             Box* attr_value = from_module->getattr(casted_attr_name);
 
             if (!attr_value)

@@ -560,6 +560,8 @@ Box* getattrFuncInternal(BoxedFunctionBase* func, CallRewriteArgs* rewrite_args,
 
     Box* rtn;
     RewriterVar* r_rtn;
+    static StatCounter _sc("slowpath_getattrinternal_getattrfunc");
+    _sc.log();
     if (rewrite_args) {
         GetattrRewriteArgs grewrite_args(rewrite_args->rewriter, rewrite_args->arg1, rewrite_args->destination);
         rtn = getattrInternal<CAPI>(obj, str, &grewrite_args);
@@ -644,6 +646,8 @@ Box* hasattrFuncInternal(BoxedFunctionBase* func, CallRewriteArgs* rewrite_args,
             rewrite_args->arg2->addGuard((intptr_t)arg2);
     }
 
+    static StatCounter _sc("slowpath_getattrinternal_hasattrfunc");
+    _sc.log();
     try {
         _str = coerceUnicodeToStr(_str);
     } catch (ExcInfo e) {

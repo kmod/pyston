@@ -35,7 +35,7 @@ public:
         SINGLETON,   // name->offset map stored in hidden class, but hcls is mutable
     } const type;
 
-    static HiddenClass* dict_backed;
+    static HiddenClass dict_backed;
 
 private:
     HiddenClass(HCType type) : type(type) {}
@@ -66,14 +66,6 @@ public:
         made = true;
 #endif
         return new HiddenClass(NORMAL);
-    }
-    static HiddenClass* makeDictBacked() {
-#ifndef NDEBUG
-        static bool made = false;
-        assert(!made);
-        made = true;
-#endif
-        return new HiddenClass(DICT_BACKED);
     }
 
     void gc_visit(GCVisitor* visitor);

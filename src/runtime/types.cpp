@@ -1370,7 +1370,7 @@ static void typeSubSetDict(Box* obj, Box* val, void* context) {
 
         HCAttrs* hcattrs = obj->getHCAttrsPtr();
 
-        hcattrs->hcls = HiddenClass::dict_backed;
+        hcattrs->hcls = &HiddenClass::dict_backed;
         hcattrs->attr_list = new_attr_list;
         return;
     }
@@ -1699,7 +1699,7 @@ Box* range_obj = NULL;
 }
 
 HiddenClass* root_hcls;
-HiddenClass* HiddenClass::dict_backed;
+HiddenClass HiddenClass::dict_backed(HiddenClass::DICT_BACKED);
 
 extern "C" Box* createSlice(Box* start, Box* stop, Box* step) {
     BoxedSlice* rtn = new BoxedSlice(start, stop, step);
@@ -3369,8 +3369,8 @@ void setupRuntime() {
 
     root_hcls = HiddenClass::makeRoot();
     gc::registerPermanentRoot(root_hcls);
-    HiddenClass::dict_backed = HiddenClass::makeDictBacked();
-    gc::registerPermanentRoot(HiddenClass::dict_backed);
+    // TODO we should be able to scan this precisely
+    gc::registerNonheapRootObject(&HiddenClass::dict_backed, sizeof(HiddenClass));
 
     // Disable the GC while we do some manual initialization of the object hierarchy:
     gc::disableGC();

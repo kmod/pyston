@@ -663,7 +663,7 @@ BoxedDict* Box::getDict() {
 Box* Box::getattrWithHCAttrs(BoxedString* attr, HCAttrs* attrs, GetattrRewriteArgs* rewrite_args) {
     HiddenClass* hcls = attrs->hcls;
 
-    if (unlikely(hcls->type == HiddenClass::DICT_BACKED)) {
+    if (unlikely(hcls == &HiddenClass::dict_backed)) {
         if (rewrite_args)
             assert(!rewrite_args->out_success);
         rewrite_args = NULL;

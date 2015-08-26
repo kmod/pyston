@@ -56,6 +56,9 @@ int slot_tp_init(PyObject* self, PyObject* args, PyObject* kwds) noexcept;
 class GetattrRewriteArgs;
 template <ExceptionStyle S>
 Box* slotTpGetattrHookInternal(Box* self, BoxedString* attr, GetattrRewriteArgs* rewrite_args) noexcept(S == CAPI);
+
+Box* mcache_lookup(PyTypeObject* type, BoxedString* name) noexcept;
+void mcache_cache(PyTypeObject* type, BoxedString* name, Box* res) noexcept;
 }
 
 #endif

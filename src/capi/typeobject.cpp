@@ -29,22 +29,20 @@ namespace pyston {
    they normally would.  This is why the maximum size is limited to
    MCACHE_MAX_ATTR_SIZE, since it might be a problem if very large
    strings are used as attribute names. */
-#define MCACHE_MAX_ATTR_SIZE    100
-#define MCACHE_SIZE_EXP         10
-#define MCACHE_HASH(version, name_hash)                                 \
-        (((unsigned int)(version) * (unsigned int)(name_hash))          \
-         >> (8*sizeof(unsigned int) - MCACHE_SIZE_EXP))
-#define MCACHE_HASH_METHOD(type, name)                                  \
-        MCACHE_HASH((type)->tp_version_tag,                     \
-                    ((PyStringObject *)(name))->ob_shash)
-#define MCACHE_CACHEABLE_NAME(name)                                     \
-        PyString_CheckExact(name) &&                            \
-        PyString_GET_SIZE(name) <= MCACHE_MAX_ATTR_SIZE
+#define MCACHE_MAX_ATTR_SIZE 100
+#define MCACHE_SIZE_EXP 10
+#define MCACHE_HASH(version, name_hash)                                                                                \
+    (((unsigned int)(version) * (unsigned int)(name_hash)) >> (8 * sizeof(unsigned int) - MCACHE_SIZE_EXP))
+#define MCACHE_HASH_METHOD(type, name) MCACHE_HASH((type)->tp_version_tag, ((intptr_t)(name)) >> 3)
+// Pyston change:
+// #define MCACHE_CACHEABLE_NAME(name) PyString_CheckExact(name) && PyString_GET_SIZE(name) <= MCACHE_MAX_ATTR_SIZE
+#define MCACHE_CACHEABLE_NAME(name)                                                                                    \
+    PyString_CHECK_INTERNED(name) == SSTATE_INTERNED_IMMORTAL&& PyString_GET_SIZE(name) <= MCACHE_MAX_ATTR_SIZE
 
 struct method_cache_entry {
     unsigned int version;
-    PyObject *name;             /* reference to exactly a str or None */
-    PyObject *value;            /* borrowed */
+    PyObject* name;  /* reference to exactly a str or None */
+    PyObject* value; /* borrowed */
 };
 
 static struct method_cache_entry method_cache[1 << MCACHE_SIZE_EXP];
@@ -177,6 +175,26 @@ static int assign_version_tag(PyTypeObject* type) noexcept {
     }
     type->tp_flags |= Py_TPFLAGS_VALID_VERSION_TAG;
     return 1;
+}
+
+Box* mcache_lookup(PyTypeObject* type, BoxedString* name) noexcept {
+    if (MCACHE_CACHEABLE_NAME(name) && PyType_HasFeature(type, Py_TPFLAGS_VALID_VERSION_TAG)) {
+        unsigned int h = MCACHE_HASH_METHOD(type, name);
+        if (method_cache[h].version == type->tp_version_tag && method_cache[h].name == name)
+            return method_cache[h].value;
+    }
+    return (Box*)-1;
+}
+
+void mcache_cache(PyTypeObject* type, BoxedString* name, Box* res) noexcept {
+    if (MCACHE_CACHEABLE_NAME(name) && assign_version_tag(type)) {
+        unsigned int h = MCACHE_HASH_METHOD(type, name);
+        method_cache[h].version = type->tp_version_tag;
+        method_cache[h].value = res; /* borrowed */
+        Py_INCREF(name);
+        Py_DECREF(method_cache[h].name);
+        method_cache[h].name = name;
+    }
 }
 
 

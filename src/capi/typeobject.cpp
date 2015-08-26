@@ -37,7 +37,7 @@ namespace pyston {
 // Pyston change:
 // #define MCACHE_CACHEABLE_NAME(name) PyString_CheckExact(name) && PyString_GET_SIZE(name) <= MCACHE_MAX_ATTR_SIZE
 #define MCACHE_CACHEABLE_NAME(name)                                                                                    \
-    PyString_CHECK_INTERNED(name) == SSTATE_INTERNED_IMMORTAL&& PyString_GET_SIZE(name) <= MCACHE_MAX_ATTR_SIZE
+    (PyString_CHECK_INTERNED(name) == SSTATE_INTERNED_IMMORTAL && PyString_GET_SIZE(name) <= MCACHE_MAX_ATTR_SIZE)
 
 struct method_cache_entry {
     unsigned int version;
@@ -3356,6 +3356,8 @@ void commonClassSetup(BoxedClass* cls) {
     }
 
     assert(cls->tp_dict && cls->tp_dict->cls == attrwrapper_cls);
+
+    cls->tp_flags |= Py_TPFLAGS_READY;
 }
 
 template <ExceptionStyle S>

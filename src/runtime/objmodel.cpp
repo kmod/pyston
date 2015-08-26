@@ -1019,6 +1019,97 @@ Box* typeLookup(BoxedClass* cls, BoxedString* attr, GetattrRewriteArgs* rewrite_
     }
 }
 
+/* Support type attribute cache */
+
+/* The cache can keep references to the names alive for longer than
+   they normally would.  This is why the maximum size is limited to
+   MCACHE_MAX_ATTR_SIZE, since it might be a problem if very large
+   strings are used as attribute names. */
+#define MCACHE_MAX_ATTR_SIZE 100
+#define MCACHE_SIZE_EXP 10
+#define MCACHE_HASH(version, name_hash)                                                                                \
+    (((unsigned int)(version) * (unsigned int)(name_hash)) >> (8 * sizeof(unsigned int) - MCACHE_SIZE_EXP))
+#define MCACHE_HASH_METHOD(type, name) MCACHE_HASH((type)->tp_version_tag, ((intptr_t)(name)) >> 3)
+// Pyston change:
+// #define MCACHE_CACHEABLE_NAME(name) PyString_CheckExact(name) && PyString_GET_SIZE(name) <= MCACHE_MAX_ATTR_SIZE
+#define MCACHE_CACHEABLE_NAME(name)                                                                                    \
+    (PyString_CHECK_INTERNED(name) == SSTATE_INTERNED_IMMORTAL && PyString_GET_SIZE(name) <= MCACHE_MAX_ATTR_SIZE)
+
+struct method_cache_entry {
+    unsigned int version;
+    PyObject* name;  /* reference to exactly a str or None */
+    PyObject* value; /* borrowed */
+};
+
+static struct method_cache_entry method_cache[1 << MCACHE_SIZE_EXP];
+static unsigned int next_version_tag = 0;
+
+static int assign_version_tag(PyTypeObject* type) noexcept {
+    /* Ensure that the tp_version_tag is valid and set
+       Py_TPFLAGS_VALID_VERSION_TAG.  To respect the invariant, this
+       must first be done on all super classes.  Return 0 if this
+       cannot be done, 1 if Py_TPFLAGS_VALID_VERSION_TAG.
+    */
+    Py_ssize_t i, n;
+    PyObject* bases;
+
+    if (PyType_HasFeature(type, Py_TPFLAGS_VALID_VERSION_TAG))
+        return 1;
+    if (!PyType_HasFeature(type, Py_TPFLAGS_HAVE_VERSION_TAG))
+        return 0;
+    if (!PyType_HasFeature(type, Py_TPFLAGS_READY))
+        return 0;
+
+    type->tp_version_tag = next_version_tag++;
+    /* for stress-testing: next_version_tag &= 0xFF; */
+
+    if (type->tp_version_tag == 0) {
+        /* wrap-around or just starting Python - clear the whole
+           cache by filling names with references to Py_None.
+           Values are also set to NULL for added protection, as they
+           are borrowed reference */
+        for (i = 0; i < (1 << MCACHE_SIZE_EXP); i++) {
+            method_cache[i].value = NULL;
+            Py_XDECREF(method_cache[i].name);
+            method_cache[i].name = Py_None;
+            Py_INCREF(Py_None);
+        }
+        /* mark all version tags as invalid */
+        PyType_Modified(&PyBaseObject_Type);
+        return 1;
+    }
+    bases = type->tp_bases;
+    n = PyTuple_GET_SIZE(bases);
+    for (i = 0; i < n; i++) {
+        PyObject* b = PyTuple_GET_ITEM(bases, i);
+        assert(PyType_Check(b));
+        if (!assign_version_tag((PyTypeObject*)b))
+            return 0;
+    }
+    type->tp_flags |= Py_TPFLAGS_VALID_VERSION_TAG;
+    return 1;
+}
+
+Box* mcache_lookup(PyTypeObject* type, BoxedString* name) noexcept {
+    if (MCACHE_CACHEABLE_NAME(name) && PyType_HasFeature(type, Py_TPFLAGS_VALID_VERSION_TAG)) {
+        unsigned int h = MCACHE_HASH_METHOD(type, name);
+        if (method_cache[h].version == type->tp_version_tag && method_cache[h].name == name)
+            return method_cache[h].value;
+    }
+    return (Box*)-1;
+}
+
+void mcache_cache(PyTypeObject* type, BoxedString* name, Box* res) noexcept {
+    if (MCACHE_CACHEABLE_NAME(name) && assign_version_tag(type)) {
+        unsigned int h = MCACHE_HASH_METHOD(type, name);
+        method_cache[h].version = type->tp_version_tag;
+        method_cache[h].value = res; /* borrowed */
+        Py_INCREF(name);
+        Py_DECREF(method_cache[h].name);
+        method_cache[h].name = name;
+    }
+}
+
 bool isNondataDescriptorInstanceSpecialCase(Box* descr) {
     return descr->cls == function_cls || descr->cls == instancemethod_cls || descr->cls == staticmethod_cls
            || descr->cls == classmethod_cls || descr->cls == wrapperdescr_cls;

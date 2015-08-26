@@ -990,6 +990,10 @@ Box* typeLookup(BoxedClass* cls, BoxedString* attr, GetattrRewriteArgs* rewrite_
     } else {
         assert(attr->interned_state != SSTATE_NOT_INTERNED);
 
+        Box* r = mcache_lookup(cls, attr);
+        if (r != (Box*)-1)
+            return r;
+
         assert(cls->tp_mro);
         assert(cls->tp_mro->cls == tuple_cls);
         for (auto b : *static_cast<BoxedTuple*>(cls->tp_mro)) {
@@ -1003,9 +1007,12 @@ Box* typeLookup(BoxedClass* cls, BoxedString* attr, GetattrRewriteArgs* rewrite_
             }
 
             val = b->getattr(attr, NULL);
-            if (val)
+            if (val) {
+                mcache_cache(cls, attr, val);
                 return val;
+            }
         }
+        mcache_cache(cls, attr, NULL);
         return NULL;
     }
 }

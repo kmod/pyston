@@ -2149,6 +2149,9 @@ void setattrGeneric(Box* obj, BoxedString* attr, Box* val, SetattrRewriteArgs* r
             rewrite_args = NULL;
             REWRITE_ABORTED("");
         }
+
+        if (rewrite_args)
+            rewrite_args->rewriter->call(false, (void*)PyType_Modified, rewrite_args->obj);
     }
 }
 
@@ -4963,6 +4966,9 @@ extern "C" void delattrGeneric(Box* obj, BoxedString* attr, DelattrRewriteArgs* 
             rewrite_args = NULL;
             REWRITE_ABORTED("");
         }
+
+        if (rewrite_args)
+            rewrite_args->rewriter->call(false, (void*)PyType_Modified, rewrite_args->obj);
     }
 
     // Extra "use" of rewrite_args to make the compiler happy:

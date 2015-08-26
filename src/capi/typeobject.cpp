@@ -23,6 +23,164 @@
 
 namespace pyston {
 
+/* Support type attribute cache */
+
+/* The cache can keep references to the names alive for longer than
+   they normally would.  This is why the maximum size is limited to
+   MCACHE_MAX_ATTR_SIZE, since it might be a problem if very large
+   strings are used as attribute names. */
+#define MCACHE_MAX_ATTR_SIZE    100
+#define MCACHE_SIZE_EXP         10
+#define MCACHE_HASH(version, name_hash)                                 \
+        (((unsigned int)(version) * (unsigned int)(name_hash))          \
+         >> (8*sizeof(unsigned int) - MCACHE_SIZE_EXP))
+#define MCACHE_HASH_METHOD(type, name)                                  \
+        MCACHE_HASH((type)->tp_version_tag,                     \
+                    ((PyStringObject *)(name))->ob_shash)
+#define MCACHE_CACHEABLE_NAME(name)                                     \
+        PyString_CheckExact(name) &&                            \
+        PyString_GET_SIZE(name) <= MCACHE_MAX_ATTR_SIZE
+
+struct method_cache_entry {
+    unsigned int version;
+    PyObject *name;             /* reference to exactly a str or None */
+    PyObject *value;            /* borrowed */
+};
+
+static struct method_cache_entry method_cache[1 << MCACHE_SIZE_EXP];
+static unsigned int next_version_tag = 0;
+
+extern "C" void PyType_Modified(PyTypeObject* type) noexcept {
+    /* Invalidate any cached data for the specified type and all
+       subclasses.  This function is called after the base
+       classes, mro, or attributes of the type are altered.
+
+       Invariants:
+
+       - Py_TPFLAGS_VALID_VERSION_TAG is never set if
+         Py_TPFLAGS_HAVE_VERSION_TAG is not set (e.g. on type
+         objects coming from non-recompiled extension modules)
+
+       - before Py_TPFLAGS_VALID_VERSION_TAG can be set on a type,
+         it must first be set on all super types.
+
+       This function clears the Py_TPFLAGS_VALID_VERSION_TAG of a
+       type (so it must first clear it on all subclasses).  The
+       tp_version_tag value is meaningless unless this flag is set.
+       We don't assign new version tags eagerly, but only as
+       needed.
+     */
+    PyObject* raw, *ref;
+    Py_ssize_t i, n;
+
+    if (!PyType_HasFeature(type, Py_TPFLAGS_VALID_VERSION_TAG))
+        return;
+
+    raw = type->tp_subclasses;
+    if (raw != NULL) {
+        n = PyList_GET_SIZE(raw);
+        for (i = 0; i < n; i++) {
+            ref = PyList_GET_ITEM(raw, i);
+            ref = PyWeakref_GET_OBJECT(ref);
+            if (ref != Py_None) {
+                PyType_Modified((PyTypeObject*)ref);
+            }
+        }
+    }
+    type->tp_flags &= ~Py_TPFLAGS_VALID_VERSION_TAG;
+}
+
+static void type_mro_modified(PyTypeObject* type, PyObject* bases) noexcept {
+    /*
+       Check that all base classes or elements of the mro of type are
+       able to be cached.  This function is called after the base
+       classes or mro of the type are altered.
+
+       Unset HAVE_VERSION_TAG and VALID_VERSION_TAG if the type
+       inherits from an old-style class, either directly or if it
+       appears in the MRO of a new-style class.  No support either for
+       custom MROs that include types that are not officially super
+       types.
+
+       Called from mro_internal, which will subsequently be called on
+       each subclass when their mro is recursively updated.
+     */
+    Py_ssize_t i, n;
+    int clear = 0;
+
+    if (!PyType_HasFeature(type, Py_TPFLAGS_HAVE_VERSION_TAG))
+        return;
+
+    n = PyTuple_GET_SIZE(bases);
+    for (i = 0; i < n; i++) {
+        PyObject* b = PyTuple_GET_ITEM(bases, i);
+        PyTypeObject* cls;
+
+        if (!PyType_Check(b)) {
+            clear = 1;
+            break;
+        }
+
+        cls = (PyTypeObject*)b;
+
+        if (!PyType_HasFeature(cls, Py_TPFLAGS_HAVE_VERSION_TAG) || !PyType_IsSubtype(type, cls)) {
+            clear = 1;
+            break;
+        }
+    }
+
+    if (clear)
+        type->tp_flags &= ~(Py_TPFLAGS_HAVE_VERSION_TAG | Py_TPFLAGS_VALID_VERSION_TAG);
+}
+
+static int assign_version_tag(PyTypeObject* type) noexcept {
+    /* Ensure that the tp_version_tag is valid and set
+       Py_TPFLAGS_VALID_VERSION_TAG.  To respect the invariant, this
+       must first be done on all super classes.  Return 0 if this
+       cannot be done, 1 if Py_TPFLAGS_VALID_VERSION_TAG.
+    */
+    Py_ssize_t i, n;
+    PyObject* bases;
+
+    if (PyType_HasFeature(type, Py_TPFLAGS_VALID_VERSION_TAG))
+        return 1;
+    if (!PyType_HasFeature(type, Py_TPFLAGS_HAVE_VERSION_TAG))
+        return 0;
+    if (!PyType_HasFeature(type, Py_TPFLAGS_READY))
+        return 0;
+
+    type->tp_version_tag = next_version_tag++;
+    /* for stress-testing: next_version_tag &= 0xFF; */
+
+    if (type->tp_version_tag == 0) {
+        /* wrap-around or just starting Python - clear the whole
+           cache by filling names with references to Py_None.
+           Values are also set to NULL for added protection, as they
+           are borrowed reference */
+        for (i = 0; i < (1 << MCACHE_SIZE_EXP); i++) {
+            method_cache[i].value = NULL;
+            Py_XDECREF(method_cache[i].name);
+            method_cache[i].name = Py_None;
+            Py_INCREF(Py_None);
+        }
+        /* mark all version tags as invalid */
+        PyType_Modified(&PyBaseObject_Type);
+        return 1;
+    }
+    bases = type->tp_bases;
+    n = PyTuple_GET_SIZE(bases);
+    for (i = 0; i < n; i++) {
+        PyObject* b = PyTuple_GET_ITEM(bases, i);
+        assert(PyType_Check(b));
+        if (!assign_version_tag((PyTypeObject*)b))
+            return 0;
+    }
+    type->tp_flags |= Py_TPFLAGS_VALID_VERSION_TAG;
+    return 1;
+}
+
+
+
 typedef int (*update_callback)(PyTypeObject*, void*);
 
 PyObject* tp_new_wrapper(PyTypeObject* self, BoxedTuple* args, Box* kwds) noexcept;
@@ -2079,49 +2237,6 @@ void add_operators(BoxedClass* cls) noexcept {
         add_tp_new_wrapper(cls);
 }
 
-static void type_mro_modified(PyTypeObject* type, PyObject* bases) {
-    /*
-       Check that all base classes or elements of the mro of type are
-       able to be cached.  This function is called after the base
-       classes or mro of the type are altered.
-
-       Unset HAVE_VERSION_TAG and VALID_VERSION_TAG if the type
-       inherits from an old-style class, either directly or if it
-       appears in the MRO of a new-style class.  No support either for
-       custom MROs that include types that are not officially super
-       types.
-
-       Called from mro_internal, which will subsequently be called on
-       each subclass when their mro is recursively updated.
-     */
-    Py_ssize_t i, n;
-    int clear = 0;
-
-    if (!PyType_HasFeature(type, Py_TPFLAGS_HAVE_VERSION_TAG))
-        return;
-
-    n = PyTuple_GET_SIZE(bases);
-    for (i = 0; i < n; i++) {
-        PyObject* b = PyTuple_GET_ITEM(bases, i);
-        PyTypeObject* cls;
-
-        if (!PyType_Check(b)) {
-            clear = 1;
-            break;
-        }
-
-        cls = (PyTypeObject*)b;
-
-        if (!PyType_HasFeature(cls, Py_TPFLAGS_HAVE_VERSION_TAG) || !PyType_IsSubtype(type, cls)) {
-            clear = 1;
-            break;
-        }
-    }
-
-    if (clear)
-        type->tp_flags &= ~(Py_TPFLAGS_HAVE_VERSION_TAG | Py_TPFLAGS_VALID_VERSION_TAG);
-}
-
 static int extra_ivars(PyTypeObject* type, PyTypeObject* base) noexcept {
     size_t t_size = type->tp_basicsize;
     size_t b_size = base->tp_basicsize;
@@ -3223,10 +3338,6 @@ void commonClassSetup(BoxedClass* cls) {
     }
 
     assert(cls->tp_dict && cls->tp_dict->cls == attrwrapper_cls);
-}
-
-extern "C" void PyType_Modified(PyTypeObject* type) noexcept {
-    // We don't cache anything yet that would need to be invalidated:
 }
 
 template <ExceptionStyle S>

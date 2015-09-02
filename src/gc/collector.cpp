@@ -203,6 +203,7 @@ public:
 
 
     void* pop() {
+        assert(GCVisitor::visited.empty());
         if (cur > start)
             return *--cur;
 
@@ -318,6 +319,7 @@ GCRootHandle::~GCRootHandle() {
     getRootHandles()->erase(this);
 }
 
+/*
 void GCVisitor::visit(void* p) {
     if ((uintptr_t)p < SMALL_ARENA_START || (uintptr_t)p >= HUGE_ARENA_START + ARENA_SIZE) {
         ASSERT(!p || isNonheapRoot(p), "%p", p);
@@ -327,6 +329,7 @@ void GCVisitor::visit(void* p) {
     ASSERT(global_heap.getAllocationFromInteriorPointer(p)->user_data == p, "%p", p);
     stack->push(p);
 }
+*/
 
 void GCVisitor::visitRange(void* const* start, void* const* end) {
     ASSERT((const char*)end - (const char*)start <= 1000000000, "Asked to scan %.1fGB -- a bug?",
@@ -431,19 +434,35 @@ static void markRoots(GCVisitor& visitor) {
     }
 }
 
+static void popAll(TraceStack& stack) {
+    while (!GCVisitor::visited.empty()) {
+        void* p = GCVisitor::visited.back();
+        GCVisitor::visited.pop_back();
+
+        if ((uintptr_t)p < SMALL_ARENA_START || (uintptr_t)p >= HUGE_ARENA_START + ARENA_SIZE) {
+            ASSERT(!p || isNonheapRoot(p), "%p", p);
+            continue;
+        }
+
+        ASSERT(global_heap.getAllocationFromInteriorPointer(p)->user_data == p, "%p", p);
+        stack.push(p);
+    }
+}
+
 static void finalizationOrderingFindReachable(Box* obj) {
     static StatCounter sc_marked_objs("gc_marked_object_count_finalizer_ordering");
     static StatCounter sc_us("us_gc_mark_finalizer_ordering_1");
     Timer _t("finalizationOrderingFindReachable", /*min_usec=*/10000);
 
     TraceStack stack(TraceStackType::FinalizationOrderingFindReachable);
-    GCVisitor visitor(&stack);
+    GCVisitor visitor;
 
     stack.push(obj);
     while (void* p = stack.pop()) {
         sc_marked_objs.log();
 
         visitByGCKind(p, visitor);
+        popAll(stack);
     }
 
     long us = _t.end();
@@ -455,13 +474,14 @@ static void finalizationOrderingRemoveTemporaries(Box* obj) {
     Timer _t("finalizationOrderingRemoveTemporaries", /*min_usec=*/10000);
 
     TraceStack stack(TraceStackType::FinalizationOrderingRemoveTemporaries);
-    GCVisitor visitor(&stack);
+    GCVisitor visitor;
 
     stack.push(obj);
     while (void* p = stack.pop()) {
         GCAllocation* al = GCAllocation::fromUserData(p);
         assert(orderingState(al) != FinalizationState::UNREACHABLE);
         visitByGCKind(p, visitor);
+        popAll(stack);
     }
 
     long us = _t.end();
@@ -523,6 +543,7 @@ static void graphTraversalMarking(TraceStack& stack, GCVisitor& visitor) {
 
         assert(isMarked(al));
         visitByGCKind(p, visitor);
+        popAll(stack);
     }
 
     long us = _t.end();
@@ -624,6 +645,8 @@ static void prepareWeakrefCallbacks(Box* box) {
     }
 }
 
+std::deque<void*> GCVisitor::visited;
+
 static void markPhase() {
     static StatCounter sc_us("us_gc_mark_phase");
     Timer _t("markPhase", /*min_usec=*/10000);
@@ -638,9 +661,10 @@ static void markPhase() {
 
     GC_TRACE_LOG("Looking at roots\n");
     TraceStack stack(TraceStackType::MarkPhase, roots);
-    GCVisitor visitor(&stack);
+    GCVisitor visitor;
 
     markRoots(visitor);
+    popAll(stack);
 
     graphTraversalMarking(stack, visitor);
 

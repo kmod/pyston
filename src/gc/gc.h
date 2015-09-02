@@ -18,6 +18,7 @@
 #include <deque>
 #include <memory>
 #include <stddef.h>
+#include <vector>
 
 // Files outside of the gc/ folder should only import gc.h or gc_alloc.h
 // which are the "public" memory management interface.
@@ -48,10 +49,12 @@ namespace gc {
 class TraceStack;
 class GCVisitor {
 private:
-    TraceStack* stack;
+    //TraceStack* stack;
 
 public:
-    GCVisitor(TraceStack* stack) : stack(stack) {}
+    static std::deque<void*> visited;
+
+    GCVisitor() {}
     virtual ~GCVisitor() {}
 
     // These all work on *user* pointers, ie pointers to the user_data section of GCAllocations
@@ -59,7 +62,10 @@ public:
         if (p)
             visit(p);
     }
-    void visit(void* p);
+    void visit(void* p) {
+        visited.push_back(p);
+    }
+
     void visitRange(void* const* start, void* const* end);
     void visitPotential(void* p);
     void visitPotentialRange(void* const* start, void* const* end);

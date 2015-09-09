@@ -34,3 +34,6 @@
 [submodule "test/lib/numpy"]
 	path = test/lib/numpy
 	url = https://github.com/numpy/numpy
+[submodule "test/lib/pyinotify"]
+	path = test/lib/pyinotify
+	url = git@github.com:seb-m/pyinotify.git

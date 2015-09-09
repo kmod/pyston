@@ -26,12 +26,13 @@ PyObject* PyDescr_NewMember(PyTypeObject* x, struct PyMemberDef* y) PYSTON_NOEXC
 }
 
 PyObject* PyDescr_NewGetSet(PyTypeObject* type, struct PyGetSetDef* getset) PYSTON_NOEXCEPT {
-    return new (type) pyston::BoxedGetsetDescriptor(
+    return new (pyston::capi_getset_cls) pyston::BoxedGetsetDescriptor(
         getset->get, (void (*)(pyston::Box*, pyston::Box*, void*))getset->set, getset->closure);
 }
-PyObject* PyDescr_NewClassMethod(PyTypeObject* x, PyMethodDef* y) PYSTON_NOEXCEPT {
-    Py_FatalError("unimplemented");
-    return NULL;
+PyObject* PyDescr_NewClassMethod(PyTypeObject* type, PyMethodDef* method) PYSTON_NOEXCEPT {
+    pyston::BoxedMethodDescriptor* descr = new pyston::BoxedMethodDescriptor(method, pyston::classmethod_cls);
+    descr->type = type;
+    return descr;
 }
 
 namespace pyston {

@@ -2044,21 +2044,13 @@ PyCSimpleType_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
             break;
         }
 
-        // TODO: Pyston change:
-        // For now, don't run this code path because we don't support some of
-        // the descriptor CAPI functions.
-        // We do this to be able to run `import ctypes`, but this will need to be
-        // enabled again once we want CType to actually work.
-        // if (ml) {
-        if (false) {
+        if (ml) {
 #if (PYTHON_API_VERSION >= 1012)
             PyObject *meth;
             int x;
-            /*
             meth = PyDescr_NewClassMethod(result, ml);
             if (!meth)
                 return NULL;
-            */
 #else
 #error
             PyObject *meth, *func;

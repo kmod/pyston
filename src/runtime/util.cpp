@@ -24,9 +24,10 @@ PyObject* PyDescr_NewMember(PyTypeObject* x, struct PyMemberDef* y) PYSTON_NOEXC
     Py_FatalError("unimplemented");
     return NULL;
 }
-PyObject* PyDescr_NewGetSet(PyTypeObject* x, struct PyGetSetDef* y) PYSTON_NOEXCEPT {
-    Py_FatalError("unimplemented");
-    return NULL;
+
+PyObject* PyDescr_NewGetSet(PyTypeObject* type, struct PyGetSetDef* getset) PYSTON_NOEXCEPT {
+    return new (type) pyston::BoxedGetsetDescriptor(
+        getset->get, (void (*)(pyston::Box*, pyston::Box*, void*))getset->set, getset->closure);
 }
 PyObject* PyDescr_NewClassMethod(PyTypeObject* x, PyMethodDef* y) PYSTON_NOEXCEPT {
     Py_FatalError("unimplemented");

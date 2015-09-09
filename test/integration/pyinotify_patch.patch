@@ -1,0 +1,14 @@
+diff --git a/python2/pyinotify.py b/python2/pyinotify.py
+index d2f0816..f2b0e67 100755
+--- a/python2/pyinotify.py
++++ b/python2/pyinotify.py
+@@ -254,7 +254,8 @@ class _CtypesLibcINotifyWrapper(INotifyWrapper):
+ 
+     def _inotify_add_watch(self, fd, pathname, mask):
+         assert self._libc is not None
+-        pathname = ctypes.create_string_buffer(pathname)
++        pathname = ctypes.c_char_p(pathname)
++        # pathname = ctypes.create_string_buffer(pathname)
+         return self._libc.inotify_add_watch(fd, pathname, mask)
+ 
+     def _inotify_rm_watch(self, fd, wd):

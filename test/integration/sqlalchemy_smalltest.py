@@ -69,22 +69,23 @@ test_files = glob.glob(TEST_DIR + "/test*.py") + glob.glob(TEST_DIR + "/*/test*.
 # These are the ones that pass on CPython (ie that we've stubbed enough of their testing
 # infrastructure to run):
 MODULES_TO_TEST = [
-    'test.base.test_dependency',
-    'test.base.test_events',
-    'test.base.test_except',
-    'test.base.test_inspect',
-    'test.dialect.test_mxodbc',
-    'test.dialect.test_pyodbc',
-    'test.dialect.test_sybase',
-    'test.engine.test_parseconnect',
-    'test.ext.test_compiler',
-    'test.orm.test_descriptor',
-    'test.orm.test_inspect',
-    'test.orm.test_query',
-    'test.sql.test_cte',
-    'test.sql.test_ddlemit',
-    'test.sql.test_inspect',
-    'test.sql.test_operators',
+    # 'test.base.test_dependency',
+    # 'test.base.test_events',
+    # 'test.base.test_except',
+    # 'test.base.test_inspect',
+    'test.base.test_utils',
+    # 'test.dialect.test_mxodbc',
+    # 'test.dialect.test_pyodbc',
+    # 'test.dialect.test_sybase',
+    # 'test.engine.test_parseconnect',
+    # 'test.ext.test_compiler',
+    # 'test.orm.test_descriptor',
+    # 'test.orm.test_inspect',
+    # 'test.orm.test_query',
+    # 'test.sql.test_cte',
+    # 'test.sql.test_ddlemit',
+    # 'test.sql.test_inspect',
+    # 'test.sql.test_operators',
 ]
 
 passed = []
@@ -103,7 +104,7 @@ for fn in test_files:
         m = __import__(mname, fromlist=["__all__"])
         for clsname in dir(m):
             cls = getattr(m, clsname)
-            if not clsname.endswith("Test") or not isinstance(cls, type):
+            if clsname.startswith('_') or not clsname.endswith("Test") or not isinstance(cls, type):
                 continue
             print "Running", cls
 

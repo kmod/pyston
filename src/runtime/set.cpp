@@ -199,7 +199,11 @@ static Box* setRepr(BoxedSet* self) {
 }
 
 static void _setSymmetricDifferenceUpdate(BoxedSet* self, Box* other) {
-    for (auto elt : other->pyElements()) {
+    if (!PyAnySet_Check(other))
+        other = makeNewSet(self->cls, other);
+
+    BoxedSet* other_set = static_cast<BoxedSet*>(other);
+    for (auto elt : other_set->s) {
         bool found = self->s.erase(elt);
         if (!found)
             self->s.insert(elt);
@@ -499,8 +503,11 @@ static Box* setIntersection(BoxedSet* self, BoxedTuple* args) {
         raiseExcHelper(TypeError, "descriptor 'intersection' requires a 'set' object but received a '%s'",
                        getTypeName(self));
 
+    if (args->size() == 0)
+        return makeNewSet(self->cls, self);
+
     BoxedSet* rtn = self;
-    for (auto container : args->pyElements()) {
+    for (auto container : *args) {
         rtn = setIntersection2(rtn, container);
     }
     return rtn;

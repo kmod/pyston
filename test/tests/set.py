@@ -141,6 +141,7 @@ for i in xrange(10):
     compare_to.append(MyFrozenset(range(i)))
     compare_to.append(range(i))
     compare_to.append(range(i, 10))
+    compare_to.append([0, 0, 1, 1])
 
 for s1 in set(range(5)), frozenset(range(5)):
     for s2 in compare_to:
@@ -192,3 +193,13 @@ def test_set_creation(base):
     print MySet(g())
 test_set_creation(set)
 test_set_creation(frozenset)
+
+set(**{})
+try:
+    set(**dict(a=1))
+except TypeError as e:
+    print e
+
+s1 = set('simsalabim')
+s2 = set('madagascar')
+print s1.symmetric_difference(s2), s1 ^ s2

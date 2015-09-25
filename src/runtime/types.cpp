@@ -1406,7 +1406,7 @@ static void typeSubSetDict(Box* obj, Box* val, void* context) {
     }
 
     if (obj->cls->instancesHaveHCAttrs()) {
-        RELEASE_ASSERT(val->cls == dict_cls || val->cls == attrwrapper_cls, "");
+        RELEASE_ASSERT(PyDict_Check(val) || val->cls == attrwrapper_cls, "%s", val->cls->tp_name);
 
         auto new_attr_list
             = (HCAttrs::AttrList*)gc_alloc(sizeof(HCAttrs::AttrList) + sizeof(Box*), gc::GCKind::PRECISE);
@@ -1421,6 +1421,11 @@ static void typeSubSetDict(Box* obj, Box* val, void* context) {
 
     // This should have thrown an exception rather than get here:
     abort();
+}
+
+extern "C" void PyType_SetDict(PyTypeObject* type, PyObject* dict) {
+    typeSubSetDict(type, dict, NULL);
+    type->tp_dict = dict;
 }
 
 Box* dict_descr = NULL;

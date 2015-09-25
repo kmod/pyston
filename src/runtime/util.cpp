@@ -29,10 +29,15 @@ PyObject* PyDescr_NewGetSet(PyTypeObject* type, struct PyGetSetDef* getset) PYST
     return new (pyston::capi_getset_cls) pyston::BoxedGetsetDescriptor(
         getset->get, (void (*)(pyston::Box*, pyston::Box*, void*))getset->set, getset->closure);
 }
+
 PyObject* PyDescr_NewClassMethod(PyTypeObject* type, PyMethodDef* method) PYSTON_NOEXCEPT {
-    pyston::BoxedMethodDescriptor* descr = new pyston::BoxedMethodDescriptor(method, pyston::classmethod_cls);
-    descr->type = type;
-    return descr;
+    // Pyston change: we don't have a separate capi classmethod descriptor type, we just use the normal
+    // one but with the METH_CLASS flag set.
+    if (!(method->ml_flags & METH_CLASS)) {
+        method = new PyMethodDef(*method);
+        method->ml_flags |= METH_CLASS;
+    }
+    return new pyston::BoxedMethodDescriptor(method, type);
 }
 
 namespace pyston {

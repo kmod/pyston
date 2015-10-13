@@ -807,7 +807,7 @@ private:
                 assert(node->args.size() == 1);
                 CompilerVariable* obj = evalExpr(node->args[0], unw_info);
 
-                ConcreteCompilerVariable* rtn = obj->hasnext(emitter, getOpInfoForNode(node, unw_info));
+                CompilerVariable* rtn = obj->hasnext(emitter, getOpInfoForNode(node, unw_info));
                 obj->decvref(emitter);
                 return rtn;
             }
@@ -1359,7 +1359,7 @@ private:
             rtn->decvref(emitter);
             return boolFromI1(emitter, negated);
         } else {
-            ConcreteCompilerVariable* rtn = operand->unaryop(emitter, getOpInfoForNode(node, unw_info), node->op_type);
+            CompilerVariable* rtn = operand->unaryop(emitter, getOpInfoForNode(node, unw_info), node->op_type);
             operand->decvref(emitter);
             return rtn;
         }
@@ -1517,19 +1517,14 @@ private:
     }
 
     // Note: the behavior of this function must match type_analysis.cpp:unboxedType()
-    ConcreteCompilerVariable* unboxVar(ConcreteCompilerType* t, llvm::Value* v, bool grabbed) {
-#if ENABLE_UNBOXED_VALUES
+    CompilerVariable* unboxVar(ConcreteCompilerType* t, llvm::Value* v, bool grabbed) {
         if (t == BOXED_INT) {
-            llvm::Value* unboxed = emitter.getBuilder()->CreateCall(g.funcs.unboxInt, v);
-            ConcreteCompilerVariable* rtn = new ConcreteCompilerVariable(INT, unboxed, true);
-            return rtn;
+            return makeUnboxedInt(emitter, v);
         }
         if (t == BOXED_FLOAT) {
-            llvm::Value* unboxed = emitter.getBuilder()->CreateCall(g.funcs.unboxFloat, v);
-            ConcreteCompilerVariable* rtn = new ConcreteCompilerVariable(FLOAT, unboxed, true);
-            return rtn;
+            return makeUnboxedFloat(emitter, v);
+            //llvm::Value* unboxed = emitter.getBuilder()->CreateCall(g.funcs.unboxFloat, v);
         }
-#endif
         if (t == BOXED_BOOL) {
             llvm::Value* unboxed = emitter.getBuilder()->CreateCall(g.funcs.unboxBool, v);
             return boolFromI1(emitter, unboxed);
@@ -2438,13 +2433,13 @@ private:
 
     void loadArgument(InternedString name, ConcreteCompilerType* t, llvm::Value* v, const UnwindInfo& unw_info) {
         assert(name.s() != FRAME_INFO_PTR_NAME);
-        ConcreteCompilerVariable* var = unboxVar(t, v, false);
+        CompilerVariable* var = unboxVar(t, v, false);
         _doSet(name, var, unw_info);
         var->decvref(emitter);
     }
 
     void loadArgument(AST_expr* name, ConcreteCompilerType* t, llvm::Value* v, const UnwindInfo& unw_info) {
-        ConcreteCompilerVariable* var = unboxVar(t, v, false);
+        CompilerVariable* var = unboxVar(t, v, false);
         _doSet(name, var, unw_info);
         var->decvref(emitter);
     }
@@ -2489,7 +2484,8 @@ private:
                 // p.second->getType()->debugName().c_str(), phi_type->debugName().c_str());
                 ConcreteCompilerVariable* v = p.second->makeConverted(emitter, phi_type);
                 p.second->decvref(emitter);
-                symbol_table[p.first] = v->split(emitter);
+                symbol_table[p.first] = new ConcreteCompilerVariable(v->getType(), v->getValue(), true);
+                v->decvref(emitter);
             } else {
 #ifndef NDEBUG
                 if (myblock->successors.size()) {
@@ -2553,7 +2549,7 @@ public:
             pp->addFrameVar(PASSED_GLOBALS_NAME, UNKNOWN);
         }
 
-        assert(INT->llvmType() == g.i64);
+        assert(UNBOXED_INT->llvmType() == g.i64);
         if (ENABLE_JIT_OBJECT_CACHE) {
             llvm::Value* v;
             if (current_stmt)
@@ -2565,7 +2561,7 @@ public:
             stackmap_args.push_back(getConstantInt((uint64_t)current_stmt, g.i64));
         }
 
-        pp->addFrameVar("!current_stmt", INT);
+        pp->addFrameVar("!current_stmt", UNBOXED_INT);
 
         if (ENABLE_FRAME_INTROSPECTION) {
             // TODO: don't need to use a sorted symbol table if we're explicitly recording the names!
@@ -2645,9 +2641,14 @@ public:
                 } else {
                     ending_type = types->getTypeAtBlockEnd(it->first, myblock);
                 }
+
+                assert(ending_type == BOOL || ending_type->getBoxType() == ending_type);
+
                 //(*phi_st)[it->first] = it->second->makeConverted(emitter, it->second->getConcreteType());
                 // printf("%s %p %d\n", it->first.c_str(), it->second, it->second->getVrefs());
-                (*phi_st)[it->first] = it->second->split(emitter)->makeConverted(emitter, ending_type);
+                auto converted = it->second->makeConverted(emitter, ending_type);
+                (*phi_st)[it->first] = new ConcreteCompilerVariable(converted->getType(), converted->getValue(), true);
+                converted->decvref(emitter);
                 it = st->erase(it);
             } else {
                 ++it;
@@ -2661,10 +2662,9 @@ public:
         assert(name.s() != FRAME_INFO_PTR_NAME);
         ASSERT(irstate->getScopeInfo()->getScopeTypeOfName(name) != ScopeInfo::VarScopeType::GLOBAL, "%s",
                name.c_str());
-#if ENABLE_UNBOXED_VALUES
-        assert(var->getType() != BOXED_INT);
-        assert(var->getType() != BOXED_FLOAT);
-#endif
+
+        assert(var->getType() == var->getType()->getBoxType() || var->getType() == BOOL);
+
         CompilerVariable*& cur = symbol_table[name];
         assert(cur == NULL);
         cur = var;

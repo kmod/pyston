@@ -60,12 +60,10 @@ ConcreteCompilerType* NullTypeAnalysis::getTypeAtBlockEnd(InternedString name, C
 static ConcreteCompilerType* unboxedType(ConcreteCompilerType* t) {
     if (t == BOXED_BOOL)
         return BOOL;
-#if ENABLE_UNBOXED_VALUES
     if (t == BOXED_INT)
-        return INT;
+        return UNBOXED_INT;
     if (t == BOXED_FLOAT)
-        return FLOAT;
-#endif
+        return UNBOXED_FLOAT;
     return t;
 }
 
@@ -703,6 +701,7 @@ public:
         assert(block->successors.size() > 0);
         return getTypeAtBlockStart(name, block->successors[0]);
     }
+
     ConcreteCompilerType* getTypeAtBlockStart(InternedString name, CFGBlock* block) override {
         assert(starting_types.count(block));
         CompilerType* base = starting_types[block][name];
@@ -710,7 +709,10 @@ public:
 
         ConcreteCompilerType* rtn = base->getConcreteType();
         ASSERT(rtn != NULL, "%s %d", name.c_str(), block->idx);
-        return rtn;
+
+        if (rtn == BOOL)
+            return rtn;
+        return rtn->getBoxType();
     }
 
     BoxedClass* speculatedExprClass(AST_slice* call) override { return type_speculations[call]; }

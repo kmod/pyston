@@ -72,7 +72,7 @@ template <class V> class _ValuedCompilerType : public CompilerType {
 public:
     typedef ValuedCompilerVariable<V> VAR;
 
-    virtual void assertMatches(V v) = 0;
+    virtual void assertMatches(V& v) = 0;
 
     virtual CompilerVariable* dup(VAR* v, DupCache& cache) {
         printf("dup not defined for %s\n", debugName().c_str());
@@ -106,9 +106,9 @@ public:
         printf("nonzero not defined for %s\n", debugName().c_str());
         abort();
     }
-    virtual ConcreteCompilerVariable* unaryop(IREmitter& emitter, const OpInfo& info, VAR* var,
+    virtual CompilerVariable* unaryop(IREmitter& emitter, const OpInfo& info, VAR* var,
                                               AST_TYPE::AST_TYPE op_type);
-    virtual ConcreteCompilerVariable* hasnext(IREmitter& emitter, const OpInfo& info, VAR* var) {
+    virtual CompilerVariable* hasnext(IREmitter& emitter, const OpInfo& info, VAR* var) {
         printf("hasnext not defined for %s\n", debugName().c_str());
         abort();
     }
@@ -139,7 +139,7 @@ public:
         printf("call not defined for %s\n", debugName().c_str());
         abort();
     }
-    virtual ConcreteCompilerVariable* len(IREmitter& emitter, const OpInfo& info, VAR* var) {
+    virtual CompilerVariable* len(IREmitter& emitter, const OpInfo& info, VAR* var) {
         printf("len not defined for %s\n", debugName().c_str());
         abort();
     }
@@ -186,7 +186,7 @@ public:
     virtual llvm::Type* llvmType() = 0;
     std::string debugName() override;
 
-    void assertMatches(llvm::Value* v) override {
+    void assertMatches(llvm::Value*& v) override {
         if (v->getType() != llvmType()) {
             v->getType()->dump();
             llvmType()->dump();
@@ -255,7 +255,6 @@ public:
             grabbed = true;
         }
     }
-    virtual CompilerVariable* split(IREmitter& emitter) = 0;
     virtual CompilerVariable* dup(DupCache& cache) = 0;
 
     virtual CompilerType* getType() = 0;
@@ -267,8 +266,8 @@ public:
     virtual BoxedClass* guaranteedClass() = 0;
 
     virtual ConcreteCompilerVariable* nonzero(IREmitter& emitter, const OpInfo& info) = 0;
-    virtual ConcreteCompilerVariable* unaryop(IREmitter& emitter, const OpInfo& info, AST_TYPE::AST_TYPE op_type) = 0;
-    virtual ConcreteCompilerVariable* hasnext(IREmitter& emitter, const OpInfo& info) = 0;
+    virtual CompilerVariable* unaryop(IREmitter& emitter, const OpInfo& info, AST_TYPE::AST_TYPE op_type) = 0;
+    virtual CompilerVariable* hasnext(IREmitter& emitter, const OpInfo& info) = 0;
     virtual CompilerVariable* getattr(IREmitter& emitter, const OpInfo& info, BoxedString* attr, bool cls_only) = 0;
     virtual void setattr(IREmitter& emitter, const OpInfo& info, BoxedString* attr, CompilerVariable* v) = 0;
     virtual void delattr(IREmitter& emitter, const OpInfo& info, BoxedString* attr) = 0;
@@ -278,7 +277,7 @@ public:
     virtual CompilerVariable* call(IREmitter& emitter, const OpInfo& info, struct ArgPassSpec argspec,
                                    const std::vector<CompilerVariable*>& args,
                                    const std::vector<BoxedString*>* keyword_names) = 0;
-    virtual ConcreteCompilerVariable* len(IREmitter& emitter, const OpInfo& info) = 0;
+    virtual CompilerVariable* len(IREmitter& emitter, const OpInfo& info) = 0;
     virtual CompilerVariable* getitem(IREmitter& emitter, const OpInfo& info, CompilerVariable*) = 0;
     virtual CompilerVariable* getPystonIter(IREmitter& emitter, const OpInfo& info) = 0;
     virtual CompilerVariable* binexp(IREmitter& emitter, const OpInfo& info, CompilerVariable* rhs,
@@ -301,28 +300,17 @@ protected:
     void grab(IREmitter& emitter) override { type->grab(emitter, this); }
 
 public:
-    ValuedCompilerVariable(T* type, V value, bool grabbed) : CompilerVariable(grabbed), type(type), value(value) {
+    ValuedCompilerVariable(T* type, V value, bool grabbed) : CompilerVariable(grabbed), type(type), value(std::move(value)) {
 #ifndef NDEBUG
-        type->assertMatches(value);
+        type->assertMatches(this->value);
 #endif
     }
     T* getType() override { return type; }
-    V getValue() { return value; }
+    V& getValue() { return value; }
 
     ConcreteCompilerType* getConcreteType() override { return type->getConcreteType(); }
     ConcreteCompilerType* getBoxType() override { return type->getBoxType(); }
 
-    ValuedCompilerVariable<V>* split(IREmitter& emitter) override {
-        ValuedCompilerVariable<V>* rtn;
-        if (getVrefs() == 1) {
-            rtn = this;
-        } else {
-            rtn = new ValuedCompilerVariable<V>(type, value, false);
-            this->decvref(emitter);
-        }
-        rtn->ensureGrabbed(emitter);
-        return rtn;
-    }
     CompilerVariable* dup(DupCache& cache) override {
         CompilerVariable* rtn = type->dup(this, cache);
 
@@ -339,10 +327,10 @@ public:
     ConcreteCompilerVariable* nonzero(IREmitter& emitter, const OpInfo& info) override {
         return type->nonzero(emitter, info, this);
     }
-    ConcreteCompilerVariable* unaryop(IREmitter& emitter, const OpInfo& info, AST_TYPE::AST_TYPE op_type) override {
+    CompilerVariable* unaryop(IREmitter& emitter, const OpInfo& info, AST_TYPE::AST_TYPE op_type) override {
         return type->unaryop(emitter, info, this, op_type);
     }
-    ConcreteCompilerVariable* hasnext(IREmitter& emitter, const OpInfo& info) override {
+    CompilerVariable* hasnext(IREmitter& emitter, const OpInfo& info) override {
         return type->hasnext(emitter, info, this);
     }
     CompilerVariable* getattr(IREmitter& emitter, const OpInfo& info, BoxedString* attr, bool cls_only) override {
@@ -366,7 +354,7 @@ public:
                            const std::vector<BoxedString*>* keyword_names) override {
         return type->call(emitter, info, this, argspec, args, keyword_names);
     }
-    ConcreteCompilerVariable* len(IREmitter& emitter, const OpInfo& info) override {
+    CompilerVariable* len(IREmitter& emitter, const OpInfo& info) override {
         return type->len(emitter, info, this);
     }
     CompilerVariable* getitem(IREmitter& emitter, const OpInfo& info, CompilerVariable* slice) override {
@@ -408,8 +396,14 @@ public:
 ConcreteCompilerVariable* doIs(IREmitter& emitter, CompilerVariable* lhs, CompilerVariable* rhs, bool negate);
 
 ConcreteCompilerVariable* makeBool(bool);
-ConcreteCompilerVariable* makeInt(int64_t);
-ConcreteCompilerVariable* makeFloat(double);
+CompilerVariable* makeInt(int64_t);
+CompilerVariable* makeInt(llvm::Value*);
+CompilerVariable* makeUnboxedInt(IREmitter& ,ConcreteCompilerVariable*);
+CompilerVariable* makeUnboxedInt(IREmitter& ,llvm::Value*);
+CompilerVariable* makeFloat(double);
+CompilerVariable* makeFloat(llvm::Value*);
+CompilerVariable* makeUnboxedFloat(IREmitter& ,ConcreteCompilerVariable*);
+CompilerVariable* makeUnboxedFloat(IREmitter& ,llvm::Value*);
 ConcreteCompilerVariable* makeLong(Box*);
 ConcreteCompilerVariable* makePureImaginary(Box*);
 CompilerVariable* makeStr(BoxedString*);
@@ -447,7 +441,7 @@ CompilerVariable* _ValuedCompilerType<V>::contains(IREmitter& emitter, const OpI
 }
 
 template <typename V>
-ConcreteCompilerVariable* _ValuedCompilerType<V>::unaryop(IREmitter& emitter, const OpInfo& info, VAR* var,
+CompilerVariable* _ValuedCompilerType<V>::unaryop(IREmitter& emitter, const OpInfo& info, VAR* var,
                                                           AST_TYPE::AST_TYPE op_type) {
     ConcreteCompilerVariable* converted = makeConverted(emitter, var, getBoxType());
     auto r = UNKNOWN->unaryop(emitter, info, converted, op_type);

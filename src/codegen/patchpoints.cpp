@@ -104,7 +104,8 @@ void PatchpointInfo::parseLocationMap(StackMap::Record* r, LocationMap* map) {
 
         cur_arg += num_args;
     }
-    assert(cur_arg - frameStackmapArgsStart() == numFrameStackmapArgs());
+    ASSERT(cur_arg - frameStackmapArgsStart() == numFrameStackmapArgs(), "%d %d %d", cur_arg, frameStackmapArgsStart(),
+           numFrameStackmapArgs());
 }
 
 static int extractScratchOffset(PatchpointInfo* pp, StackMap::Record* r) {

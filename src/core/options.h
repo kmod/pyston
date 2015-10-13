@@ -56,7 +56,7 @@ extern bool BOOLS_AS_I64;
 // change the apparent id() / is-equality of a boxed value (by inserting extra unbox+box pairs).
 // I think it can be rescued (we need the unboxed compilertype to remember the boxed value),
 // but for now it's just turned off with this flag.
-#define ENABLE_UNBOXED_VALUES 1
+#define ENABLE_UNBOXED_VALUES 0
 }
 }
 

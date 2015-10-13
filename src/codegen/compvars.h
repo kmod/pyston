@@ -47,7 +47,7 @@ public:
     virtual std::string debugName() = 0;
     virtual ConcreteCompilerType* getConcreteType() = 0;
     virtual ConcreteCompilerType* getBoxType() = 0;
-    virtual bool canConvertTo(ConcreteCompilerType* other_type) = 0;
+    virtual bool canConvertTo(CompilerType* other_type) = 0;
     virtual CompilerType* getattrType(BoxedString* attr, bool cls_only) = 0;
     virtual CompilerType* getPystonIterType();
     virtual Result hasattr(BoxedString* attr);
@@ -94,7 +94,7 @@ public:
         printf("grab not defined for %s\n", debugName().c_str());
         abort();
     }
-    bool canConvertTo(ConcreteCompilerType* other_type) override {
+    bool canConvertTo(CompilerType* other_type) override {
         printf("canConvertTo not defined for %s\n", debugName().c_str());
         abort();
     }
@@ -102,13 +102,12 @@ public:
         printf("makeConverted not defined for %s\n", debugName().c_str());
         abort();
     }
-    virtual ConcreteCompilerVariable* nonzero(IREmitter& emitter, const OpInfo& info, VAR* var) {
+    virtual CompilerVariable* nonzero(IREmitter& emitter, const OpInfo& info, VAR* var) {
         printf("nonzero not defined for %s\n", debugName().c_str());
         abort();
     }
-    virtual ConcreteCompilerVariable* unaryop(IREmitter& emitter, const OpInfo& info, VAR* var,
-                                              AST_TYPE::AST_TYPE op_type);
-    virtual ConcreteCompilerVariable* hasnext(IREmitter& emitter, const OpInfo& info, VAR* var) {
+    virtual CompilerVariable* unaryop(IREmitter& emitter, const OpInfo& info, VAR* var, AST_TYPE::AST_TYPE op_type);
+    virtual CompilerVariable* hasnext(IREmitter& emitter, const OpInfo& info, VAR* var) {
         printf("hasnext not defined for %s\n", debugName().c_str());
         abort();
     }
@@ -139,7 +138,7 @@ public:
         printf("call not defined for %s\n", debugName().c_str());
         abort();
     }
-    virtual ConcreteCompilerVariable* len(IREmitter& emitter, const OpInfo& info, VAR* var) {
+    virtual CompilerVariable* len(IREmitter& emitter, const OpInfo& info, VAR* var) {
         printf("len not defined for %s\n", debugName().c_str());
         abort();
     }
@@ -202,7 +201,7 @@ public:
 
     CompilerVariable* dup(ConcreteCompilerVariable* v, DupCache& cache) override;
     ConcreteCompilerType* getConcreteType() override { return this; }
-    bool canConvertTo(ConcreteCompilerType* other_type) override { return other_type == this || other_type == UNKNOWN; }
+    bool canConvertTo(CompilerType* other_type) override { return other_type == this || other_type == UNKNOWN; }
     ConcreteCompilerVariable* makeConverted(IREmitter& emitter, ConcreteCompilerVariable* var,
                                             ConcreteCompilerType* other_type) override;
     void serializeToFrame(VAR* var, std::vector<llvm::Value*>& stackmap_args) override;
@@ -261,14 +260,14 @@ public:
     virtual CompilerType* getType() = 0;
     virtual ConcreteCompilerType* getConcreteType() = 0;
     virtual ConcreteCompilerType* getBoxType() = 0;
-    virtual bool canConvertTo(ConcreteCompilerType* other_type) = 0;
+    virtual bool canConvertTo(CompilerType* other_type) = 0;
     virtual ConcreteCompilerVariable* makeConverted(IREmitter& emitter, ConcreteCompilerType* other_type) = 0;
     virtual llvm::Value* makeClassCheck(IREmitter& emitter, BoxedClass* cls) = 0;
     virtual BoxedClass* guaranteedClass() = 0;
 
-    virtual ConcreteCompilerVariable* nonzero(IREmitter& emitter, const OpInfo& info) = 0;
-    virtual ConcreteCompilerVariable* unaryop(IREmitter& emitter, const OpInfo& info, AST_TYPE::AST_TYPE op_type) = 0;
-    virtual ConcreteCompilerVariable* hasnext(IREmitter& emitter, const OpInfo& info) = 0;
+    virtual CompilerVariable* nonzero(IREmitter& emitter, const OpInfo& info) = 0;
+    virtual CompilerVariable* unaryop(IREmitter& emitter, const OpInfo& info, AST_TYPE::AST_TYPE op_type) = 0;
+    virtual CompilerVariable* hasnext(IREmitter& emitter, const OpInfo& info) = 0;
     virtual CompilerVariable* getattr(IREmitter& emitter, const OpInfo& info, BoxedString* attr, bool cls_only) = 0;
     virtual void setattr(IREmitter& emitter, const OpInfo& info, BoxedString* attr, CompilerVariable* v) = 0;
     virtual void delattr(IREmitter& emitter, const OpInfo& info, BoxedString* attr) = 0;
@@ -278,7 +277,7 @@ public:
     virtual CompilerVariable* call(IREmitter& emitter, const OpInfo& info, struct ArgPassSpec argspec,
                                    const std::vector<CompilerVariable*>& args,
                                    const std::vector<BoxedString*>* keyword_names) = 0;
-    virtual ConcreteCompilerVariable* len(IREmitter& emitter, const OpInfo& info) = 0;
+    virtual CompilerVariable* len(IREmitter& emitter, const OpInfo& info) = 0;
     virtual CompilerVariable* getitem(IREmitter& emitter, const OpInfo& info, CompilerVariable*) = 0;
     virtual CompilerVariable* getPystonIter(IREmitter& emitter, const OpInfo& info) = 0;
     virtual CompilerVariable* binexp(IREmitter& emitter, const OpInfo& info, CompilerVariable* rhs,
@@ -330,19 +329,19 @@ public:
         return rtn;
     }
 
-    bool canConvertTo(ConcreteCompilerType* other_type) override { return type->canConvertTo(other_type); }
+    bool canConvertTo(CompilerType* other_type) override { return type->canConvertTo(other_type); }
     ConcreteCompilerVariable* makeConverted(IREmitter& emitter, ConcreteCompilerType* other_type) override {
         ConcreteCompilerVariable* rtn = type->makeConverted(emitter, this, other_type);
         ASSERT(rtn->getType() == other_type, "%s", type->debugName().c_str());
         return rtn;
     }
-    ConcreteCompilerVariable* nonzero(IREmitter& emitter, const OpInfo& info) override {
+    CompilerVariable* nonzero(IREmitter& emitter, const OpInfo& info) override {
         return type->nonzero(emitter, info, this);
     }
-    ConcreteCompilerVariable* unaryop(IREmitter& emitter, const OpInfo& info, AST_TYPE::AST_TYPE op_type) override {
+    CompilerVariable* unaryop(IREmitter& emitter, const OpInfo& info, AST_TYPE::AST_TYPE op_type) override {
         return type->unaryop(emitter, info, this, op_type);
     }
-    ConcreteCompilerVariable* hasnext(IREmitter& emitter, const OpInfo& info) override {
+    CompilerVariable* hasnext(IREmitter& emitter, const OpInfo& info) override {
         return type->hasnext(emitter, info, this);
     }
     CompilerVariable* getattr(IREmitter& emitter, const OpInfo& info, BoxedString* attr, bool cls_only) override {
@@ -366,9 +365,7 @@ public:
                            const std::vector<BoxedString*>* keyword_names) override {
         return type->call(emitter, info, this, argspec, args, keyword_names);
     }
-    ConcreteCompilerVariable* len(IREmitter& emitter, const OpInfo& info) override {
-        return type->len(emitter, info, this);
-    }
+    CompilerVariable* len(IREmitter& emitter, const OpInfo& info) override { return type->len(emitter, info, this); }
     CompilerVariable* getitem(IREmitter& emitter, const OpInfo& info, CompilerVariable* slice) override {
         return type->getitem(emitter, info, this, slice);
     }
@@ -407,8 +404,13 @@ public:
 // Emit the test for whether one variable 'is' another one.
 ConcreteCompilerVariable* doIs(IREmitter& emitter, CompilerVariable* lhs, CompilerVariable* rhs, bool negate);
 
+CompilerVariable* makeInt(int64_t);
+CompilerVariable* makeInt(llvm::Value*); // Takes a i64 and turns it into a CompilerVariable
+// Takes a BOXED_INT and returns an INT:
+CompilerVariable* unboxInt(IREmitter&, ConcreteCompilerVariable*);
+CompilerVariable* unboxInt(IREmitter&, llvm::Value*);
+
 ConcreteCompilerVariable* makeBool(bool);
-ConcreteCompilerVariable* makeInt(int64_t);
 ConcreteCompilerVariable* makeFloat(double);
 ConcreteCompilerVariable* makeLong(Box*);
 ConcreteCompilerVariable* makePureImaginary(Box*);
@@ -447,8 +449,8 @@ CompilerVariable* _ValuedCompilerType<V>::contains(IREmitter& emitter, const OpI
 }
 
 template <typename V>
-ConcreteCompilerVariable* _ValuedCompilerType<V>::unaryop(IREmitter& emitter, const OpInfo& info, VAR* var,
-                                                          AST_TYPE::AST_TYPE op_type) {
+CompilerVariable* _ValuedCompilerType<V>::unaryop(IREmitter& emitter, const OpInfo& info, VAR* var,
+                                                  AST_TYPE::AST_TYPE op_type) {
     ConcreteCompilerVariable* converted = makeConverted(emitter, var, getBoxType());
     auto r = UNKNOWN->unaryop(emitter, info, converted, op_type);
     converted->decvref(emitter);

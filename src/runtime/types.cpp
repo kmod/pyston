@@ -4037,6 +4037,7 @@ void setupRuntime() {
     setupImport();
     setupPyston();
     setupAST();
+    setupPcre();
 
     PyType_Ready(&PyByteArrayIter_Type);
     PyType_Ready(&PyCapsule_Type);

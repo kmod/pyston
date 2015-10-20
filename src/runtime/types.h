@@ -79,6 +79,7 @@ void setupThread();
 void setupImport();
 void setupAST();
 void setupSysEnd();
+void setupPcre();
 
 BoxedDict* getSysModulesDict();
 BoxedList* getSysPath();

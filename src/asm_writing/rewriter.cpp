@@ -1139,8 +1139,8 @@ void Rewriter::commit() {
         ic_rewrites_aborted_assemblyfail.log();
 #if 0
         std::string per_name_stat_name = "ic_rewrites_aborted_assemblyfail_" + std::string(debugName());
-        uint64_t* counter = Stats::getStatCounter(per_name_stat_name);
-        Stats::log(counter);
+        uint64_t* counter = StatsManager::getStatCounter(per_name_stat_name);
+        StatsManager::log(counter);
 #endif
         this->abort();
     };
@@ -1952,7 +1952,7 @@ static inline void log_ic_attempts_skipped(const char* debug_name) {
     ic_attempts_skipped.log();
 #if STAT_ICS
     std::string stat_name = std::string(IC_ATTEMPTS_SKIPPED_NAME) + "." + debug_name;
-    Stats::log(Stats::getStatCounter(stat_name));
+    StatsManager::log(StatsManager::getStatCounter(stat_name));
 #if STAT_ICS_LOCATION
     logByCurrentPythonLine(stat_name);
 #endif
@@ -1963,7 +1963,7 @@ static inline void log_ic_attempts_skipped_megamorphic(const char* debug_name) {
     ic_attempts_skipped_megamorphic.log();
 #if STAT_ICS
     std::string stat_name = std::string(IC_ATTEMPTS_SKIPPED_MEGAMORPHIC_NAME) + "." + debug_name;
-    Stats::log(Stats::getStatCounter(stat_name));
+    StatsManager::log(StatsManager::getStatCounter(stat_name));
 #if STAT_ICS_LOCATION
     logByCurrentPythonLine(stat_name);
 #endif

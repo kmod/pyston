@@ -61,26 +61,26 @@ uint64_t* StatTimer::getCurrentCounter() {
 }
 #endif
 
-std::unordered_map<uint64_t*, std::string>* Stats::names;
-bool Stats::enabled;
+std::unordered_map<uint64_t*, std::string>* StatsManager::names;
+bool StatsManager::enabled;
 
-timespec Stats::start_ts;
-uint64_t Stats::start_tick;
+timespec StatsManager::start_ts;
+uint64_t StatsManager::start_tick;
 
-StatCounter::StatCounter(const std::string& name) : counter(Stats::getStatCounter(name)) {
+StatCounter::StatCounter(const std::string& name) : counter(StatsManager::getStatCounter(name)) {
 }
 
 StatPerThreadCounter::StatPerThreadCounter(const std::string& name) {
     char buf[80];
     snprintf(buf, 80, "%s_t%ld", name.c_str(), pthread_self());
-    counter = Stats::getStatCounter(buf);
+    counter = StatsManager::getStatCounter(buf);
 }
 
 static std::vector<uint64_t*>* counts;
-uint64_t* Stats::getStatCounter(const std::string& name) {
+uint64_t* StatsManager::getStatCounter(const std::string& name) {
     // hacky but easy way of getting around static constructor ordering issues for now:
     static std::unordered_map<uint64_t*, std::string> names;
-    Stats::names = &names;
+    StatsManager::names = &names;
     static std::unordered_map<std::string, uint64_t*> made;
     // TODO: can do better than doing a malloc per counter:
     static std::vector<uint64_t*> counts;
@@ -96,34 +96,34 @@ uint64_t* Stats::getStatCounter(const std::string& name) {
     return rtn;
 }
 
-void Stats::clear() {
+void StatsManager::clear() {
     assert(counts);
     for (auto p : *counts) {
         *p = 0;
     }
 }
 
-void Stats::startEstimatingCPUFreq() {
-    clock_gettime(CLOCK_REALTIME, &Stats::start_ts);
-    Stats::start_tick = getCPUTicks();
+void StatsManager::startEstimatingCPUFreq() {
+    clock_gettime(CLOCK_REALTIME, &StatsManager::start_ts);
+    StatsManager::start_tick = getCPUTicks();
 }
 
 // returns our estimate of the MHz of the cpu.  MHz is handy because we're mostly interested in microsoecond-resolution
 // timing.
-double Stats::estimateCPUFreq() {
+double StatsManager::estimateCPUFreq() {
     timespec dump_ts;
     clock_gettime(CLOCK_REALTIME, &dump_ts);
     uint64_t end_tick = getCPUTicks();
 
     uint64_t wall_clock_ns = (dump_ts.tv_sec - start_ts.tv_sec) * 1000000000 + (dump_ts.tv_nsec - start_ts.tv_nsec);
-    return (double)(end_tick - Stats::start_tick) * 1000 / wall_clock_ns;
+    return (double)(end_tick - StatsManager::start_tick) * 1000 / wall_clock_ns;
 }
 
-void Stats::dump(bool includeZeros) {
-    if (!Stats::enabled)
+void StatsManager::dump(bool includeZeros) {
+    if (!StatsManager::enabled)
         return;
 
-    double cycles_per_us = Stats::estimateCPUFreq();
+    double cycles_per_us = StatsManager::estimateCPUFreq();
     fprintf(stderr, "Stats:\n");
     fprintf(stderr, "estimated_cpu_mhz: %5.5f\n", cycles_per_us);
 
@@ -176,7 +176,7 @@ void Stats::dump(bool includeZeros) {
     fprintf(stderr, "(End of stats)\n");
 }
 
-void Stats::endOfInit() {
+void StatsManager::endOfInit() {
     std::unordered_map<uint64_t*, std::string> names_copy(names->begin(), names->end());
     for (const auto& p : names_copy) {
         uint64_t* init_id = getStatCounter("_init_" + p.second);

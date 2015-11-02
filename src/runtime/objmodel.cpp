@@ -688,7 +688,7 @@ template <Rewritable rewritable> Box* Box::getattr(BoxedString* attr, GetattrRew
                 printf("");
 
             std::string per_name_stat_name = "slowpath_box_getattr." + std::string(attr);
-            Stats::log(Stats::getStatCounter(per_name_stat_name));
+            StatsManager::log(StatsManager::getStatCounter(per_name_stat_name));
         }
     }
 #endif
@@ -1881,7 +1881,7 @@ Box* getattrInternalGeneric(Box* obj, BoxedString* attr, GetattrRewriteArgs* rew
 #if STAT_CALLATTR_DESCR_ABORTS
                         if (rewrite_args) {
                             std::string attr_name = "num_callattr_descr_abort";
-                            Stats::log(Stats::getStatCounter(attr_name));
+                            StatsManager::log(StatsManager::getStatCounter(attr_name));
                             logByCurrentPythonLine(attr_name);
                         }
 #endif
@@ -2030,7 +2030,7 @@ Box* getattrInternalGeneric(Box* obj, BoxedString* attr, GetattrRewriteArgs* rew
 #if STAT_CALLATTR_DESCR_ABORTS
                 if (rewrite_args) {
                     std::string attr_name = "num_callattr_descr_abort";
-                    Stats::log(Stats::getStatCounter(attr_name));
+                    StatsManager::log(StatsManager::getStatCounter(attr_name));
                     logByCurrentPythonLine(attr_name);
                 }
 #endif
@@ -2124,17 +2124,17 @@ template <ExceptionStyle S> Box* _getattrEntry(Box* obj, BoxedString* attr, void
     if (VERBOSITY() >= 2) {
 #if !DISABLE_STATS
         std::string per_name_stat_name = "getattr__" + std::string(attr->s());
-        uint64_t* counter = Stats::getStatCounter(per_name_stat_name);
-        Stats::log(counter);
+        uint64_t* counter = StatsManager::getStatCounter(per_name_stat_name);
+        StatsManager::log(counter);
 #endif
     }
 
     gc::UniqueScanningHandle<Rewriter> rewriter(Rewriter::createRewriter(return_addr, 2, "getattr"));
 
 #if 0 && STAT_TIMERS
-    static uint64_t* st_id = Stats::getStatCounter("us_timer_slowpath_getattr_patchable");
-    static uint64_t* st_id_nopatch = Stats::getStatCounter("us_timer_slowpath_getattr_nopatch");
-    static uint64_t* st_id_megamorphic = Stats::getStatCounter("us_timer_slowpath_getattr_megamorphic");
+    static uint64_t* st_id = StatsManager::getStatCounter("us_timer_slowpath_getattr_patchable");
+    static uint64_t* st_id_nopatch = StatsManager::getStatCounter("us_timer_slowpath_getattr_nopatch");
+    static uint64_t* st_id_megamorphic = StatsManager::getStatCounter("us_timer_slowpath_getattr_megamorphic");
     ICInfo* icinfo = getICInfo(return_addr);
     uint64_t* counter;
     if (!icinfo)
@@ -2142,8 +2142,8 @@ template <ExceptionStyle S> Box* _getattrEntry(Box* obj, BoxedString* attr, void
     else if (icinfo->isMegamorphic())
         counter = st_id_megamorphic;
     else {
-        //counter = Stats::getStatCounter("us_timer_slowpath_getattr_patchable_" + std::string(obj->cls->tp_name));
-        //counter = Stats::getStatCounter("us_timer_slowpath_getattr_patchable_" + std::string(attr->s()));
+        //counter = StatsManager::getStatCounter("us_timer_slowpath_getattr_patchable_" + std::string(obj->cls->tp_name));
+        //counter = StatsManager::getStatCounter("us_timer_slowpath_getattr_patchable_" + std::string(attr->s()));
         counter = st_id;
         if (!rewriter.get())
             printf("");
@@ -3092,9 +3092,9 @@ Box* _callattrEntry(Box* obj, BoxedString* attr, CallattrFlags flags, Box* arg1,
         assert(!flags.null_on_nonexistent);
 
 #if 0 && STAT_TIMERS
-    static uint64_t* st_id = Stats::getStatCounter("us_timer_slowpath_callattr_patchable");
-    static uint64_t* st_id_nopatch = Stats::getStatCounter("us_timer_slowpath_callattr_nopatch");
-    static uint64_t* st_id_megamorphic = Stats::getStatCounter("us_timer_slowpath_callattr_megamorphic");
+    static uint64_t* st_id = StatsManager::getStatCounter("us_timer_slowpath_callattr_patchable");
+    static uint64_t* st_id_nopatch = StatsManager::getStatCounter("us_timer_slowpath_callattr_nopatch");
+    static uint64_t* st_id_megamorphic = StatsManager::getStatCounter("us_timer_slowpath_callattr_megamorphic");
     ICInfo* icinfo = getICInfo(return_addr);
     uint64_t* counter;
     if (!icinfo)
@@ -3102,8 +3102,8 @@ Box* _callattrEntry(Box* obj, BoxedString* attr, CallattrFlags flags, Box* arg1,
     else if (icinfo->isMegamorphic())
         counter = st_id_megamorphic;
     else {
-        //counter = Stats::getStatCounter("us_timer_slowpath_callattr_patchable_" + std::string(obj->cls->tp_name));
-        counter = Stats::getStatCounter("us_timer_slowpath_callattr_patchable_" + std::string(attr->s()));
+        //counter = StatsManager::getStatCounter("us_timer_slowpath_callattr_patchable_" + std::string(obj->cls->tp_name));
+        counter = StatsManager::getStatCounter("us_timer_slowpath_callattr_patchable_" + std::string(attr->s()));
     }
     ScopedStatTimer st(counter, 10);
 #endif
@@ -3876,8 +3876,8 @@ Box* callFunc(BoxedFunctionBase* func, CallRewriteArgs* rewrite_args, ArgPassSpe
         snprintf(buf, sizeof(buf), "zzz_aborted_%d_args_%d_%d_%d_%d_params_%d_%d_%d_%d", f->isGenerator(),
                  argspec.num_args, argspec.num_keywords, argspec.has_starargs, argspec.has_kwargs, paramspec.num_args,
                  paramspec.num_defaults, paramspec.takes_varargs, paramspec.takes_kwargs);
-        uint64_t* counter = Stats::getStatCounter(buf);
-        Stats::log(counter);
+        uint64_t* counter = StatsManager::getStatCounter(buf);
+        StatsManager::log(counter);
 #endif
 
         if (rewrite_args) {
@@ -4223,8 +4223,8 @@ Box* runtimeCallInternal(Box* obj, CallRewriteArgs* rewrite_args, ArgPassSpec ar
 
 #if 0
         std::string per_name_stat_name = "zzz_runtimecall_nonfunction_" + std::string(obj->cls->tp_name);
-        uint64_t* counter = Stats::getStatCounter(per_name_stat_name);
-        Stats::log(counter);
+        uint64_t* counter = StatsManager::getStatCounter(per_name_stat_name);
+        StatsManager::log(counter);
         if (obj->cls == wrapperobject_cls)
             printf("");
 #endif
@@ -4402,9 +4402,9 @@ static Box* runtimeCallEntry(Box* obj, ArgPassSpec argspec, Box* arg1, Box* arg2
     Box* rtn;
 
 #if 0 && STAT_TIMERS
-    static uint64_t* st_id = Stats::getStatCounter("us_timer_slowpath_runtimecall_patchable");
-    static uint64_t* st_id_nopatch = Stats::getStatCounter("us_timer_slowpath_runtimecall_nopatch");
-    static uint64_t* st_id_megamorphic = Stats::getStatCounter("us_timer_slowpath_runtimecall_megamorphic");
+    static uint64_t* st_id = StatsManager::getStatCounter("us_timer_slowpath_runtimecall_patchable");
+    static uint64_t* st_id_nopatch = StatsManager::getStatCounter("us_timer_slowpath_runtimecall_nopatch");
+    static uint64_t* st_id_megamorphic = StatsManager::getStatCounter("us_timer_slowpath_runtimecall_megamorphic");
     ICInfo* icinfo = getICInfo(return_addr);
     uint64_t* counter;
     if (!icinfo)
@@ -4412,7 +4412,7 @@ static Box* runtimeCallEntry(Box* obj, ArgPassSpec argspec, Box* arg1, Box* arg2
     else if (icinfo->isMegamorphic())
         counter = st_id_megamorphic;
     else {
-        counter = Stats::getStatCounter("us_timer_slowpath_runtimecall_patchable_" + std::string(obj->cls->tp_name));
+        counter = StatsManager::getStatCounter("us_timer_slowpath_runtimecall_patchable_" + std::string(obj->cls->tp_name));
     }
     ScopedStatTimer st(counter, 10);
 
@@ -4620,8 +4620,8 @@ extern "C" Box* binop(Box* lhs, Box* rhs, int op_type) {
     STAT_TIMER(t0, "us_timer_slowpath_binop", 10);
     bool can_patchpoint = !lhs->cls->is_user_defined && !rhs->cls->is_user_defined;
 #if 0
-    static uint64_t* st_id = Stats::getStatCounter("us_timer_slowpath_binop_patchable");
-    static uint64_t* st_id_nopatch = Stats::getStatCounter("us_timer_slowpath_binop_nopatch");
+    static uint64_t* st_id = StatsManager::getStatCounter("us_timer_slowpath_binop_patchable");
+    static uint64_t* st_id_nopatch = StatsManager::getStatCounter("us_timer_slowpath_binop_nopatch");
     bool havepatch = (bool)getICInfo(__builtin_extract_return_addr(__builtin_return_address(0)));
     ScopedStatTimer st((havepatch && can_patchpoint)? st_id : st_id_nopatch, 10);
 #endif
@@ -4630,8 +4630,8 @@ extern "C" Box* binop(Box* lhs, Box* rhs, int op_type) {
     slowpath_binop.log();
     // static StatCounter nopatch_binop("nopatch_binop");
 
-    // int id = Stats::getStatId("slowpath_binop_" + *getTypeName(lhs) + op_name + *getTypeName(rhs));
-    // Stats::log(id);
+    // int id = StatsManager::getStatId("slowpath_binop_" + *getTypeName(lhs) + op_name + *getTypeName(rhs));
+    // StatsManager::log(id);
 
     gc::UniqueScanningHandle<Rewriter> rewriter((Rewriter*)NULL);
     // Currently can't patchpoint user-defined binops since we can't assume that just because
@@ -4667,8 +4667,8 @@ extern "C" Box* augbinop(Box* lhs, Box* rhs, int op_type) {
     slowpath_augbinop.log();
     // static StatCounter nopatch_binop("nopatch_augbinop");
 
-    // int id = Stats::getStatId("slowpath_augbinop_" + *getTypeName(lhs) + op_name + *getTypeName(rhs));
-    // Stats::log(id);
+    // int id = StatsManager::getStatId("slowpath_augbinop_" + *getTypeName(lhs) + op_name + *getTypeName(rhs));
+    // StatsManager::log(id);
 
     gc::UniqueScanningHandle<Rewriter> rewriter((Rewriter*)NULL);
     // Currently can't patchpoint user-defined binops since we can't assume that just because
@@ -6168,8 +6168,8 @@ extern "C" Box* getGlobal(Box* globals, BoxedString* name) {
     if (VERBOSITY() >= 2) {
 #if !DISABLE_STATS
         std::string per_name_stat_name = "getglobal__" + std::string(name->s());
-        uint64_t* counter = Stats::getStatCounter(per_name_stat_name);
-        Stats::log(counter);
+        uint64_t* counter = StatsManager::getStatCounter(per_name_stat_name);
+        StatsManager::log(counter);
 #endif
     }
 

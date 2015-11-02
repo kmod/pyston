@@ -1155,7 +1155,7 @@ std::string getCurrentPythonLine() {
 
 void logByCurrentPythonLine(const std::string& stat_name) {
     std::string stat = stat_name + "<" + getCurrentPythonLine() + ">";
-    Stats::log(Stats::getStatCounter(stat));
+    StatsManager::log(StatsManager::getStatCounter(stat));
 }
 
 void _printStacktrace() {
@@ -1179,7 +1179,7 @@ extern "C" void abort() {
 
     if (!recursive) {
         recursive = true;
-        Stats::dump();
+        StatsManager::dump();
         fprintf(stderr, "Someone called abort!\n");
 
         // If traceback_cls is NULL, then we somehow died early on, and won't be able to display a traceback.

@@ -333,7 +333,7 @@ extern "C" BoxedGenerator* createGenerator(BoxedFunctionBase* function, Box* arg
 }
 
 #if STAT_TIMERS
-static uint64_t* generator_timer_counter = Stats::getStatCounter("us_timer_generator_toplevel");
+static uint64_t* generator_timer_counter = StatsManager::getStatCounter("us_timer_generator_toplevel");
 #endif
 extern "C" BoxedGenerator::BoxedGenerator(BoxedFunctionBase* function, Box* arg1, Box* arg2, Box* arg3, Box** args)
     : function(function),

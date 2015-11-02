@@ -747,8 +747,8 @@ static PyObject* half_richcompare(PyObject* self, PyObject* other, int op) noexc
     slowpath_richcompare.log();
 #if 0
     std::string per_name_stat_name = "slowpath_richcompare." + std::string(self->cls->tp_name);
-    int id = Stats::getStatId(per_name_stat_name);
-    Stats::log(id);
+    int id = StatsManager::getStatId(per_name_stat_name);
+    StatsManager::log(id);
 #endif
 
     PyObject* res;

@@ -843,7 +843,7 @@ void checkAndThrowCAPIException() {
 extern "C" void Py_Exit(int sts) noexcept {
     // Py_Finalize();
 
-    Stats::dump(false);
+    StatsManager::dump(false);
     exit(sts);
 }
 

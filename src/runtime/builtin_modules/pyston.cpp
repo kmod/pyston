@@ -52,7 +52,7 @@ static Box* setOption(Box* option, Box* value) {
 }
 
 static Box* clearStats() {
-    Stats::clear();
+    StatsManager::clear();
     return None;
 }
 
@@ -60,7 +60,7 @@ static Box* dumpStats(Box* includeZeros) {
     if (includeZeros->cls != bool_cls)
         raiseExcHelper(TypeError, "includeZeros must be a 'bool' object but received a '%s'",
                        getTypeName(includeZeros));
-    Stats::dump(((BoxedBool*)includeZeros)->n != 0);
+    StatsManager::dump(((BoxedBool*)includeZeros)->n != 0);
     return None;
 }
 

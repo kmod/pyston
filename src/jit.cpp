@@ -206,7 +206,7 @@ int handleArg(char code) {
     } else if (code == 'j') {
         DUMPJIT = true;
     } else if (code == 's') {
-        Stats::setEnabled(true);
+        StatsManager::setEnabled(true);
     } else if (code == 'S') {
         Py_NoSiteFlag = 1;
     } else if (code == 'U') {
@@ -310,7 +310,7 @@ static int main(int argc, char** argv) {
     int rtncode = 0;
     {
 #if STAT_TIMERS
-        StatTimer timer(Stats::getStatCounter("us_timer_main_toplevel"), 0, true);
+        StatTimer timer(StatsManager::getStatCounter("us_timer_main_toplevel"), 0, true);
         timer.pushTopLevel(main_time.getStartTime());
 #endif
 
@@ -364,7 +364,7 @@ static int main(int argc, char** argv) {
             Py_HashRandomizationFlag = 1;
 
         _PyRandom_Init();
-        Stats::startEstimatingCPUFreq();
+        StatsManager::startEstimatingCPUFreq();
 
         const char* fn = NULL;
 
@@ -439,7 +439,7 @@ static int main(int argc, char** argv) {
         // encodings module.
         setEncodingAndErrors();
 
-        Stats::endOfInit();
+        StatsManager::endOfInit();
 
         _t.split("to run");
         BoxedModule* main_module = NULL;
@@ -540,7 +540,7 @@ static int main(int argc, char** argv) {
         timer.popTopLevel(main_time_ended_at);
 #endif
     }
-    Stats::dump(true);
+    StatsManager::dump(true);
 
 
     return rtncode;

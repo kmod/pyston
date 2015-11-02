@@ -370,7 +370,7 @@ static void handle_sigprof(int signum) {
 //#define INVESTIGATE_STAT_TIMER "us_timer_in_jitted_code"
 #ifdef INVESTIGATE_STAT_TIMER
 static_assert(STAT_TIMERS, "Stat timers need to be enabled to investigate them");
-static uint64_t* stat_counter = Stats::getStatCounter(INVESTIGATE_STAT_TIMER);
+static uint64_t* stat_counter = StatsManager::getStatCounter(INVESTIGATE_STAT_TIMER);
 static void handle_sigprof_investigate_stattimer(int signum) {
     if (StatTimer::getCurrentCounter() == stat_counter)
         raise(SIGTRAP);
@@ -383,7 +383,7 @@ static void handle_sigint(int signum) {
     // For now, just call abort(), so that we get a traceback at least.
     fprintf(stderr, "SIGINT!\n");
     joinRuntime();
-    Stats::dump(false);
+    StatsManager::dump(false);
     abort();
 }
 

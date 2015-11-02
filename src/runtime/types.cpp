@@ -1047,8 +1047,8 @@ static Box* typeCallInner(CallRewriteArgs* rewrite_args, ArgPassSpec argspec, Bo
                     per_name_stat_name += "_" + std::string(arg2->cls->tp_name);
                 else
                     per_name_stat_name += "_narg";
-                uint64_t* counter = Stats::getStatCounter(per_name_stat_name);
-                Stats::log(counter);
+                uint64_t* counter = StatsManager::getStatCounter(per_name_stat_name);
+                StatsManager::log(counter);
             }
 #endif
         }

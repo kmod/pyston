@@ -40,10 +40,10 @@ namespace pyston {
 
 #if STAT_TIMERS
 #define STAT_TIMER(id, name, avoidability)                                                                             \
-    static uint64_t* _stcounter##id = Stats::getStatCounter(name);                                                     \
+    static uint64_t* _stcounter##id = StatsManager::getStatCounter(name);                                                     \
     ScopedStatTimer _st##id(_stcounter##id, avoidability)
 #define UNAVOIDABLE_STAT_TIMER(id, name)                                                                               \
-    static uint64_t* _stcounter##id = Stats::getStatCounter(name);                                                     \
+    static uint64_t* _stcounter##id = StatsManager::getStatCounter(name);                                                     \
     ScopedStatTimer _st##id(_stcounter##id, 0, true)
 #else
 #define STAT_TIMER(id, name, avoidability)
@@ -53,7 +53,7 @@ namespace pyston {
 #define STAT_TIMER_NAME(id) _st##id
 
 #if !DISABLE_STATS
-struct Stats {
+struct StatsManager {
 private:
     static std::unordered_map<uint64_t*, std::string>* names;
     static bool enabled;
@@ -67,7 +67,7 @@ public:
 
     static uint64_t* getStatCounter(const std::string& name);
 
-    static void setEnabled(bool enabled) { Stats::enabled = enabled; }
+    static void setEnabled(bool enabled) { StatsManager::enabled = enabled; }
     static void log(uint64_t* counter, uint64_t count = 1) { *counter += count; }
 
     static void clear();
@@ -96,7 +96,7 @@ public:
 };
 
 #else
-struct Stats {
+struct StatsManager {
     static void startEstimatingCPUFreq() {}
     static double estimateCPUFreq() { return 0; }
     static void setEnabled(bool enabled) {}
@@ -201,9 +201,9 @@ private:
 
         uint64_t _duration = at_time - _start_time;
         if (counter_override)
-            Stats::log(counter_override, _duration);
+            StatsManager::log(counter_override, _duration);
         else
-            Stats::log(_statcounter, _duration);
+            StatsManager::log(_statcounter, _duration);
 
         _start_time = 0;
     }

@@ -673,7 +673,7 @@ extern "C" void __cxa_end_catch() {
 extern "C" std::type_info EXCINFO_TYPE_INFO;
 
 #if STAT_TIMERS
-static uint64_t* unwinding_stattimer = pyston::Stats::getStatCounter("us_timer_unwinding");
+static uint64_t* unwinding_stattimer = pyston::StatsManager::getStatCounter("us_timer_unwinding");
 #endif
 
 extern "C" void __cxa_throw(void* exc_obj, std::type_info* tinfo, void (*dtor)(void*)) {

@@ -65,7 +65,7 @@ static void* thread_start(Box* target, Box* varargs, Box* kwargs) {
 
 #if STAT_TIMERS
     // TODO: maybe we should just not log anything for threads...
-    static uint64_t* timer_counter = Stats::getStatCounter("us_timer_thread_start");
+    static uint64_t* timer_counter = StatsManager::getStatCounter("us_timer_thread_start");
     StatTimer timer(timer_counter, 0, true);
     timer.pushTopLevel(getCPUTicks());
 #endif

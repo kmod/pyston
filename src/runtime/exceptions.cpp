@@ -250,7 +250,7 @@ void logException(ExcInfo* exc_info) {
         stat_name = "num_exceptions_" + std::string(static_cast<BoxedClass*>(exc_info->type)->tp_name);
     else
         stat_name = "num_exceptions_" + std::string(exc_info->value->cls->tp_name);
-    Stats::log(Stats::getStatCounter(stat_name));
+    StatsManager::log(StatsManager::getStatCounter(stat_name));
 #if STAT_EXCEPTIONS_LOCATION
     logByCurrentPythonLine(stat_name);
 #endif

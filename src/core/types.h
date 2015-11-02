@@ -588,8 +588,8 @@ extern "C" PyObject* PystonType_GenericAlloc(BoxedClass* cls, Py_ssize_t nitems)
     if (cls->tp_name) {                                                                                                \
         std::string per_name_alloc_name = "alloc." + std::string(cls->tp_name);                                        \
         std::string per_name_allocsize_name = "allocsize." + std::string(cls->tp_name);                                \
-        Stats::log(Stats::getStatCounter(per_name_alloc_name));                                                        \
-        Stats::log(Stats::getStatCounter(per_name_allocsize_name), size);                                              \
+        StatsManager::log(StatsManager::getStatCounter(per_name_alloc_name));                                                        \
+        StatsManager::log(StatsManager::getStatCounter(per_name_allocsize_name), size);                                              \
     }
 #define ALLOC_STATS_VAR(cls)                                                                                           \
     if (cls->tp_name) {                                                                                                \

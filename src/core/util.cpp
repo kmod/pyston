@@ -60,7 +60,7 @@ uint64_t Timer::end(uint64_t* ended_at) {
         uint64_t duration = end - start_time;
         Timer::level--;
         if (VERBOSITY("time") >= 2 && desc) {
-            uint64_t us = (uint64_t)(duration / Stats::estimateCPUFreq());
+            uint64_t us = (uint64_t)(duration / StatsManager::estimateCPUFreq());
 
             if (us > min_usec) {
                 for (int i = 0; i < Timer::level; i++) {

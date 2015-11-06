@@ -104,7 +104,7 @@ void FrameInfo::gcVisit(GCVisitor* visitor) {
 }
 
 // Analogue of PyType_GenericAlloc (default tp_alloc), but should only be used for Pyston classes!
-extern "C" PyObject* PystonType_GenericAlloc(BoxedClass* cls, Py_ssize_t nitems) noexcept {
+extern "C" PassedReference<PyObject> PystonType_GenericAlloc(BorrowedReference<BoxedClass> cls, Py_ssize_t nitems) noexcept {
     assert(cls);
 
     // See PyType_GenericAlloc for note about the +1 here:
@@ -144,18 +144,18 @@ extern "C" PyObject* PystonType_GenericAlloc(BoxedClass* cls, Py_ssize_t nitems)
     // the first 8 bytes) since it will get written by PyObject_Init.
     memset(mem, '\0', size);
 
-    Box* rtn = static_cast<Box*>(mem);
+    OwnedReference<PyObject, false> rtn = owned(static_cast<Box*>(mem));
 
     if (cls->tp_itemsize != 0)
-        static_cast<BoxVar*>(rtn)->ob_size = nitems;
+        static_cast<BoxVar*>(rtn.borrow())->ob_size = nitems;
 
     PyObject_INIT(rtn, cls);
     assert(rtn->cls);
 
-    return rtn;
+    return rtn.pass();
 }
 
-extern "C" PyObject* PyType_GenericAlloc(PyTypeObject* type, Py_ssize_t nitems) noexcept {
+extern "C" PassedReference<PyObject> PyType_GenericAlloc(BorrowedReference<PyTypeObject> type, Py_ssize_t nitems) noexcept {
     PyObject* obj;
     const size_t size = _PyObject_VAR_SIZE(type, nitems + 1);
     // I don't understand why there is a +1 in this method; _PyObject_NewVar doesn't do that.
@@ -195,7 +195,7 @@ extern "C" PyObject* _PyObject_New(PyTypeObject* tp) noexcept {
 }
 
 // Analogue of PyType_GenericNew
-void* BoxVar::operator new(size_t size, BoxedClass* cls, size_t nitems) {
+void* BoxVar::operator new(size_t size, BorrowedReference<BoxedClass> cls, size_t nitems) {
     ALLOC_STATS_VAR(cls);
 
     assert(cls);
@@ -204,12 +204,12 @@ void* BoxVar::operator new(size_t size, BoxedClass* cls, size_t nitems) {
     assert(cls->tp_itemsize > 0);
     assert(cls->tp_alloc);
 
-    void* mem = cls->tp_alloc(cls, nitems);
+    OwnedReference<Box> mem = cls->tp_alloc(cls, nitems);
     RELEASE_ASSERT(mem, "");
-    return mem;
+    return mem.take();
 }
 
-void* Box::operator new(size_t size, BoxedClass* cls) {
+void* Box::operator new(size_t size, BorrowedReference<BoxedClass> cls) {
     ALLOC_STATS(cls);
 
     assert(cls);
@@ -217,9 +217,9 @@ void* Box::operator new(size_t size, BoxedClass* cls) {
     assert(cls->tp_itemsize == 0);
     assert(cls->tp_alloc);
 
-    void* mem = cls->tp_alloc(cls, 0);
+    OwnedReference<Box> mem = cls->tp_alloc(cls, 0);
     RELEASE_ASSERT(mem, "");
-    return mem;
+    return mem.take();
 }
 
 Box* BoxedClass::callHasnextIC(Box* obj, bool null_on_nonexistent) {
@@ -342,7 +342,7 @@ Box* Box::hasnextOrNullIC() {
 
 void Box::gcHandler(GCVisitor* v, Box* b) {
     if (b->cls) {
-        v->visit(&b->cls);
+        v->visit(&(BoxedClass*&)b->cls);
 
         if (b->cls->instancesHaveHCAttrs()) {
             HCAttrs* attrs = b->getHCAttrsPtr();
@@ -357,14 +357,14 @@ void Box::gcHandler(GCVisitor* v, Box* b) {
         }
 
         if (b->cls->tp_flags & Py_TPFLAGS_HEAPTYPE) {
-            BoxedHeapClass* heap_cls = static_cast<BoxedHeapClass*>(b->cls);
+            BoxedHeapClass* heap_cls = static_cast<BoxedHeapClass*>((BoxedClass*)b->cls);
             BoxedHeapClass::SlotOffset* slotOffsets = heap_cls->slotOffsets();
             for (int i = 0; i < heap_cls->nslots(); i++) {
                 v->visit(&*((Box**)((char*)b + slotOffsets[i])));
             }
         }
     } else {
-        assert(type_cls == NULL || b == type_cls);
+        assert(type_cls == nullptr || b == type_cls);
     }
 }
 
@@ -1006,7 +1006,7 @@ static Box* typeCallInner(CallRewriteArgs* rewrite_args, ArgPassSpec argspec, Bo
     // this array is ok with not using StlCompatAllocator since we will manually register these objects with the GC
     static std::vector<Box*> class_making_news;
     if (class_making_news.empty()) {
-        for (BoxedClass* allowed_cls : { object_cls, enumerate_cls, xrange_cls, tuple_cls, list_cls, dict_cls }) {
+        for (BoxedClass* allowed_cls : { (BoxedClass*)object_cls, enumerate_cls, xrange_cls, (BoxedClass*)tuple_cls, list_cls, dict_cls }) {
             auto new_obj = typeLookup(allowed_cls, new_str);
             gc::registerPermanentRoot(new_obj, /* allow_duplicates= */ true);
             class_making_news.push_back(new_obj);
@@ -1401,7 +1401,7 @@ void BoxedClass::gcHandler(GCVisitor* v, Box* b) {
     BoxedClass* cls = (BoxedClass*)b;
 
     if (cls->tp_base)
-        v->visit(&cls->tp_base);
+        v->visit(&(BoxedClass*&)cls->tp_base);
     if (cls->tp_dict)
         v->visit(&cls->tp_dict);
     if (cls->tp_mro)
@@ -1564,12 +1564,15 @@ void BoxedClosure::gcHandler(GCVisitor* v, Box* b) {
 }
 
 extern "C" {
-BoxedClass* object_cls, *type_cls, *none_cls, *bool_cls, *int_cls, *float_cls,
-    * str_cls = NULL, *function_cls, *instancemethod_cls, *list_cls, *slice_cls, *module_cls, *dict_cls, *tuple_cls,
+BoxedClass* bool_cls, *float_cls,
+      *function_cls, *instancemethod_cls, *list_cls, *slice_cls, *module_cls, *dict_cls,
       *file_cls, *member_descriptor_cls, *closure_cls, *generator_cls, *null_importer_cls, *complex_cls,
-      *basestring_cls, *property_cls, *staticmethod_cls, *classmethod_cls, *attrwrapper_cls, *pyston_getset_cls,
+      *property_cls, *staticmethod_cls, *classmethod_cls, *attrwrapper_cls, *pyston_getset_cls,
       *capi_getset_cls, *builtin_function_or_method_cls, *attrwrapperiter_cls, *set_cls, *frozenset_cls;
+StoredReference<BoxedClass, false> object_cls, type_cls, none_cls, basestring_cls, str_cls, tuple_cls, int_cls;
+}
 
+extern "C" {
 BoxedTuple* EmptyTuple;
 }
 
@@ -1809,7 +1812,7 @@ static Box* functionNonzero(BoxedFunction* self) {
 }
 
 extern "C" {
-Box* None = NULL;
+StoredReference<Box> None;
 Box* NotImplemented = NULL;
 Box* repr_obj = NULL;
 Box* len_obj = NULL;
@@ -1969,7 +1972,7 @@ Box* sliceHash(BoxedSlice* self) {
 }
 
 Box* sliceReduce(BoxedSlice* self) {
-    return Py_BuildValue("O(OOO)", self->cls, self->start, self->stop, self->step);
+    return Py_BuildValue("O(OOO)", self->cls.borrow(), self->start, self->stop, self->step);
 }
 
 Box* sliceIndices(BoxedSlice* self, Box* len) {
@@ -3287,7 +3290,7 @@ static void typeSetBases(Box* b, Box* v, void* c) {
 
 // cls should be obj->cls.
 // Added as parameter because it should typically be available
-inline void initUserAttrs(Box* obj, BoxedClass* cls) {
+inline void initUserAttrs(BorrowedReference<Box> obj, BorrowedReference<BoxedClass> cls) {
     assert(obj->cls == cls);
     if (cls->instancesHaveHCAttrs()) {
         HCAttrs* attrs = obj->getHCAttrsPtr();
@@ -3331,22 +3334,22 @@ extern "C" PyVarObject* PyObject_InitVar(PyVarObject* op, PyTypeObject* tp, Py_s
     return op;
 }
 
-extern "C" PyObject* PyObject_Init(PyObject* op, PyTypeObject* tp) noexcept {
-    if (op == NULL)
+extern "C" BorrowedReference<PyObject> PyObject_Init(BorrowedReference<PyObject> op, BorrowedReference<PyTypeObject> tp) noexcept {
+    if (op == nullptr)
         return PyErr_NoMemory();
 
     assert(tp);
 
-    assert(gc::isValidGCMemory(op));
-    assert(gc::isValidGCObject(tp));
+    assert(gc::isValidGCMemory(op.borrow()));
+    assert(gc::isValidGCObject(tp.borrow()));
 
-    Py_TYPE(op) = tp;
-    _Py_NewReference(op);
+    Py_TYPE(op).init(tp);
+    _Py_NewReference(op.borrow());
 
-    gc::registerPythonObject(op);
+    gc::registerPythonObject(op.borrow());
 
     if (PyType_SUPPORTS_WEAKREFS(tp)) {
-        *PyObject_GET_WEAKREFS_LISTPTR(op) = NULL;
+        *PyObject_GET_WEAKREFS_LISTPTR(op.borrow()) = NULL;
     }
 
     // I think CPython defers the dict creation (equivalent of our initUserAttrs) to the
@@ -3359,13 +3362,13 @@ extern "C" PyObject* PyObject_Init(PyObject* op, PyTypeObject* tp) noexcept {
 
 #ifndef NDEBUG
     if (tp->tp_flags & Py_TPFLAGS_HEAPTYPE) {
-        BoxedHeapClass* heap_cls = static_cast<BoxedHeapClass*>(tp);
+        BoxedHeapClass* heap_cls = static_cast<BoxedHeapClass*>(tp.borrow());
         if (heap_cls->nslots() > 0) {
             BoxedHeapClass::SlotOffset* slotOffsets = heap_cls->slotOffsets();
             for (int i = 0; i < heap_cls->nslots(); i++) {
                 // This should be set to 0 on allocation:
                 // (If it wasn't, we would need to initialize it to 0 here.)
-                assert(*(Box**)((char*)op + slotOffsets[i]) == NULL);
+                assert(*(Box**)((char*)op.borrow() + slotOffsets[i]) == NULL);
             }
         }
     }
@@ -3691,10 +3694,12 @@ void setupRuntime() {
     // We have to do a little dance to get object_cls and type_cls set up, since the normal
     // object-creation routines look at the class to see the allocation size.
     void* mem = gc_alloc(sizeof(BoxedClass), gc::GCKind::PYTHON);
-    object_cls = ::new (mem) BoxedClass(NULL, &Box::gcHandler, 0, 0, sizeof(Box), false, "object");
+    object_cls.init(owned(
+        ::new (mem) BoxedClass(borrowed((BoxedClass*)NULL), &Box::gcHandler, 0, 0, sizeof(Box), false, "object")));
     mem = gc_alloc(sizeof(BoxedClass), gc::GCKind::PYTHON);
-    type_cls = ::new (mem) BoxedClass(object_cls, &BoxedClass::gcHandler, offsetof(BoxedClass, attrs),
-                                      offsetof(BoxedClass, tp_weaklist), sizeof(BoxedHeapClass), false, "type");
+    type_cls.init(
+        owned(::new (mem) BoxedClass(object_cls, &BoxedClass::gcHandler, offsetof(BoxedClass, attrs),
+                                     offsetof(BoxedClass, tp_weaklist), sizeof(BoxedHeapClass), false, "type")));
     type_cls->has_safe_tp_dealloc = false;
     type_cls->tp_flags |= Py_TPFLAGS_TYPE_SUBCLASS;
     type_cls->tp_itemsize = sizeof(BoxedHeapClass::SlotOffset);
@@ -3710,40 +3715,35 @@ void setupRuntime() {
     object_cls->tp_new = object_new;
     type_cls->tp_getattro = type_getattro;
 
-    none_cls = new (0) BoxedClass(object_cls, NULL, 0, 0, sizeof(Box), false, "NoneType");
-    None = new (none_cls) Box();
-    constants.push_back(None);
+    none_cls.init(owned(new (0) BoxedClass(object_cls, NULL, 0, 0, sizeof(Box), false, "NoneType")));
+    None.init(owned(new (none_cls) Box()));
+    constants.push_back(None.borrow());
     assert(None->cls);
-    gc::registerPermanentRoot(None);
+    gc::registerPermanentRoot(None.borrow());
 
     // You can't actually have an instance of basestring
-    basestring_cls = new (0) BoxedClass(object_cls, NULL, 0, 0, sizeof(Box), false, "basestring");
+    basestring_cls.init(owned(new (0) BoxedClass(object_cls, NULL, 0, 0, sizeof(Box), false, "basestring")));
 
     // We add 1 to the tp_basicsize of the BoxedString in order to hold the null byte at the end.
     // We use offsetof(BoxedString, s_data) as opposed to sizeof(BoxedString) so that we can
     // use the extra padding bytes at the end of the BoxedString.
-    str_cls = new (0) BoxedClass(basestring_cls, NULL, 0, 0, offsetof(BoxedString, s_data) + 1, false, "str");
+    str_cls.init(owned(new (0) BoxedClass(basestring_cls, NULL, 0, 0, offsetof(BoxedString, s_data) + 1, false, "str")));
     str_cls->tp_flags |= Py_TPFLAGS_STRING_SUBCLASS;
     str_cls->tp_itemsize = sizeof(char);
 
     gc::enableGC();
 
     // It wasn't safe to add __base__ attributes until object+type+str are set up, so do that now:
-    Py_INCREF(object_cls);
     type_cls->giveAttr("__base__", object_cls);
-    Py_INCREF(object_cls);
     basestring_cls->giveAttr("__base__", object_cls);
-    Py_INCREF(basestring_cls);
     str_cls->giveAttr("__base__", basestring_cls);
-    Py_INCREF(object_cls);
     none_cls->giveAttr("__base__", object_cls);
-    Py_INCREF(None);
     object_cls->giveAttr("__base__", None);
 
     // Not sure why CPython defines sizeof(PyTupleObject) to include one element,
     // but we copy that, which means we have to subtract that extra pointer to get the tp_basicsize:
-    tuple_cls = new (0)
-        BoxedClass(object_cls, &BoxedTuple::gcHandler, 0, 0, sizeof(BoxedTuple) - sizeof(Box*), false, "tuple");
+    tuple_cls.init(owned(new (0) BoxedClass(object_cls, &BoxedTuple::gcHandler, 0, 0, sizeof(BoxedTuple) - sizeof(Box*),
+                                            false, "tuple")));
 
     tuple_cls->tp_dealloc = (destructor)tupledealloc;
     tuple_cls->tp_flags |= Py_TPFLAGS_TUPLE_SUBCLASS;
@@ -3762,7 +3762,7 @@ void setupRuntime() {
     dict_cls->tp_flags |= Py_TPFLAGS_DICT_SUBCLASS;
     file_cls = new (0) BoxedClass(object_cls, &BoxedFile::gcHandler, 0, offsetof(BoxedFile, weakreflist),
                                   sizeof(BoxedFile), false, "file");
-    int_cls = new (0) BoxedClass(object_cls, NULL, 0, 0, sizeof(BoxedInt), false, "int");
+    int_cls.init(owned(new (0) BoxedClass(object_cls, NULL, 0, 0, sizeof(BoxedInt), false, "int")));
     int_cls->tp_flags |= Py_TPFLAGS_INT_SUBCLASS;
     bool_cls = new (0) BoxedClass(int_cls, NULL, 0, 0, sizeof(BoxedBool), false, "bool");
     complex_cls = new (0) BoxedClass(object_cls, NULL, 0, 0, sizeof(BoxedComplex), false, "complex");
@@ -3862,16 +3862,34 @@ void setupRuntime() {
     for (auto b : constants)
         Py_DECREF(b);
     for (auto b : classes) {
-        if (b->tp_mro) {
-            Py_DECREF(b->tp_mro);
-        }
+        assert(0);
+        b->tp_base.decref();
+        Py_XDECREF(b->tp_mro);
         Py_DECREF(b);
+
+// The CPython type_dealloc():
+#if 0
+        _PyObject_GC_UNTRACK(type);
+        PyObject_ClearWeakRefs((PyObject*)type);
+        et = (PyHeapTypeObject*)type;
+        //Py_XDECREF(type->tp_base);
+        Py_XDECREF(type->tp_dict);
+        Py_XDECREF(type->tp_bases);
+        //Py_XDECREF(type->tp_mro);
+        Py_XDECREF(type->tp_cache);
+        Py_XDECREF(type->tp_subclasses);
+        /* A type's tp_doc is heap allocated, unlike the tp_doc slots
+         *      * of most other objects.  It's okay to cast it to char *.
+         *           */
+        PyObject_Free((char*)type->tp_doc);
+        Py_XDECREF(et->ht_name);
+        Py_XDECREF(et->ht_slots);
+        Py_TYPE(type)->tp_free((PyObject*)type);
+#endif
     }
     PRINT_TOTAL_REFS();
     exit(0);
     // XXX
-
-
 
 
 

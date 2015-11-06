@@ -149,7 +149,8 @@ PyAPI_FUNC(void) _PyMem_DebugFree(void *p) PYSTON_NOEXCEPT;
  */
 
 /* Functions */
-PyAPI_FUNC(PyObject *) PyObject_Init(PyObject *, PyTypeObject *) PYSTON_NOEXCEPT;
+PyAPI_FUNC(PYSTON_BORROWED_REFERENCE(PyObject)) PyObject_Init(PYSTON_BORROWED_REFERENCE(PyObject),
+        PYSTON_BORROWED_REFERENCE(PyTypeObject)) PYSTON_NOEXCEPT;
 PyAPI_FUNC(PyVarObject *) PyObject_InitVar(PyVarObject *,
                                                  PyTypeObject *, Py_ssize_t) PYSTON_NOEXCEPT;
 PyAPI_FUNC(PyObject *) _PyObject_New(PyTypeObject *) PYSTON_NOEXCEPT;
@@ -169,7 +170,7 @@ PyAPI_FUNC(PyVarObject *) _PyObject_NewVar(PyTypeObject *, Py_ssize_t) PYSTON_NO
 #define PyObject_INIT_VAR(op, typeobj, size) \
     ( Py_SIZE(op) = (size), PyObject_INIT((op), (typeobj)) )
 #endif
-#define PyObject_INIT(op, typeobj) PyObject_Init((PyObject*)(op), (PyTypeObject*)(typeobj))
+#define PyObject_INIT(op, typeobj) PyObject_Init((PYSTON_BORROWED_REFERENCE(PyObject))(op), (PYSTON_BORROWED_REFERENCE(PyTypeObject))(typeobj))
 #define PyObject_INIT_VAR(op, typeobj, size) PyObject_InitVar((PyVarObject*)(op), (PyTypeObject*)(typeobj), size)
 
 #define _PyObject_SIZE(typeobj) ( (typeobj)->tp_basicsize )

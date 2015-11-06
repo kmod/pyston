@@ -790,7 +790,7 @@ static PyObject* set_reduce(BoxedSet* so) noexcept {
         dict = Py_None;
         Py_INCREF(dict);
     }
-    result = PyTuple_Pack(3, Py_TYPE(so), args, dict);
+    result = PyTuple_Pack(3, Py_TYPE(so).borrow(), args, dict);
 done:
     Py_XDECREF(args);
     Py_XDECREF(keys);

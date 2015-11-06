@@ -2812,7 +2812,7 @@ static int overrides_name(PyTypeObject* type, const char* name) noexcept {
 
 static void inherit_slots(PyTypeObject* type, PyTypeObject* base) noexcept {
     // Pyston addition:
-    if (base->tp_base == NULL)
+    if (base->tp_base == nullptr)
         assert(base == object_cls);
 
     PyTypeObject* basebase;

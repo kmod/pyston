@@ -556,6 +556,8 @@ PASS_OBJS := $(PASS_SRCS:.cpp=.standalone.o)
 	$(NINJA) -C $(CMAKE_DIR_DBG) src/CMakeFiles/PYSTON_OBJECTS.dir/$(patsubst src/%.o,%.cpp.o,$@) $(NINJAFLAGS)
 %.release.o: %.cpp $(CMAKE_SETUP_RELEASE)
 	$(NINJA) -C $(CMAKE_DIR_RELEASE) src/CMakeFiles/PYSTON_OBJECTS.dir/$(patsubst src/%.release.o,%.cpp.o,$@) $(NINJAFLAGS)
+%.gcc.o: %.cpp $(CMAKE_SETUP_GCC)
+	$(NINJA) -C $(CMAKE_DIR_GCC) src/CMakeFiles/PYSTON_OBJECTS.dir/$(patsubst src/%.gcc.o,%.cpp.o,$@) $(NINJAFLAGS)
 
 $(UNITTEST_SRCS:.cpp=.o): CXXFLAGS += -isystem $(GTEST_DIR)/include
 

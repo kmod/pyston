@@ -33,7 +33,7 @@ struct _PyIntObject;
 typedef struct _PyIntObject PyIntObject;
 
 // Pyston change: this is no longer a static object
-PyAPI_DATA(PyTypeObject*) int_cls;
+PyAPI_DATA(PYSTON_STORED_REFERENCE(PyTypeObject)) int_cls;
 #define PyInt_Type (*int_cls)
 
 // Pyston change: (op)->ob_type --> Py_TYPE(op)

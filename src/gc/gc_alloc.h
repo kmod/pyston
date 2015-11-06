@@ -103,7 +103,7 @@ extern "C" inline void* gc_alloc(size_t bytes, GCKind kind_id) {
 
     // TODO This doesn't belong here (probably in PythonGCObject?)...
     if (kind_id == GCKind::PYTHON) {
-        ((Box*)r)->cls = NULL;
+        ((Box*)r)->cls.init(owned<BoxedClass>(NULL));
     }
 
 #ifndef NDEBUG

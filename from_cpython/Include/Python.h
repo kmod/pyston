@@ -47,6 +47,10 @@
 
 #include "pyport.h"
 
+#ifdef _PYSTON_API
+#include "core/refcounting.h"
+#endif
+
 #include "pymath.h"
 #include "pymem.h"
 

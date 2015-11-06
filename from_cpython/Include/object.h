@@ -332,6 +332,22 @@ class BoxedClass;
 typedef pyston::BoxedClass PyTypeObject;
 #endif
 
+// Pyston addition:
+#ifdef _PYSTON_API
+#define PYSTON_BORROWED_NULLABLE_REFERENCE(B) pyston::BorrowedReference<B, true>
+#define PYSTON_BORROWED_REFERENCE(B) pyston::BorrowedReference<B, false>
+#define PYSTON_STORED_NULLABLE_REFERENCE(B) pyston::StoredReference<B, true>
+#define PYSTON_STORED_REFERENCE(B) pyston::StoredReference<B, false>
+#define PYSTON_PASSED_NULLABLE_REFERENCE(B) pyston::PassedReference<B, true>
+#define PYSTON_PASSED_REFERENCE(B) pyston::PassedReference<B, false>
+#else
+#define PYSTON_STORED_NULLABLE_REFERENCE(B) B*
+#define PYSTON_STORED_REFERENCE(B) B*
+#define PYSTON_BORROWED_NULLABLE_REFERENCE(B) B*
+#define PYSTON_BORROWED_REFERENCE(B) B*
+#define PYSTON_PASSED_NULLABLE_REFERENCE(B) B*
+#define PYSTON_PASSED_REFERENCE(B) B*
+#endif
 
 typedef void (*freefunc)(void *);
 typedef void (*destructor)(PyObject *);
@@ -351,7 +367,7 @@ typedef int (*descrsetfunc) (PyObject *, PyObject *, PyObject *);
 typedef int (*initproc)(PyObject *, PyObject *, PyObject *);
 // Pyston change: renamed from struct _typeobject to PyTypeObject
 typedef PyObject *(*newfunc)(PyTypeObject *, PyObject *, PyObject *);
-typedef PyObject *(*allocfunc)(PyTypeObject *, Py_ssize_t);
+typedef PYSTON_PASSED_REFERENCE(PyObject) (*allocfunc)(PYSTON_BORROWED_REFERENCE(PyTypeObject), Py_ssize_t);
 
 // Pyston change: moved the field definitions of a PyTypeObject to this macro
 #define PyTypeObject_BODY                                                       \
@@ -412,7 +428,7 @@ typedef PyObject *(*allocfunc)(PyTypeObject *, Py_ssize_t);
     struct PyMethodDef *tp_methods;\
     struct PyMemberDef *tp_members;\
     struct PyGetSetDef *tp_getset;\
-    PyTypeObject *tp_base;\
+    PYSTON_STORED_NULLABLE_REFERENCE(PyTypeObject) tp_base;\
     PyObject *tp_dict;\
     descrgetfunc tp_descr_get;\
     descrsetfunc tp_descr_set;\
@@ -496,13 +512,13 @@ PyAPI_FUNC(int) PyType_IsSubtype(PyTypeObject *, PyTypeObject *) PYSTON_NOEXCEPT
 
 // Pyston change:
 //PyAPI_DATA(PyTypeObject) PyType_Type; /* built-in 'type' */
-PyAPI_DATA(PyTypeObject*) type_cls;
+PyAPI_DATA(PYSTON_STORED_REFERENCE(PyTypeObject)) type_cls;
 #define PyType_Type (*type_cls)
 
 // Pyston change: this is no longer a static object
 //PyAPI_DATA(PyTypeObject) PyBaseObject_Type; /* built-in 'object' */
 //PyAPI_DATA(PyTypeObject) PySuper_Type; /* built-in 'super' */
-PyAPI_DATA(PyTypeObject*) object_cls;
+PyAPI_DATA(PYSTON_STORED_REFERENCE(PyTypeObject)) object_cls;
 #define PyBaseObject_Type (*object_cls)
 
 #define PyType_Check(op) \
@@ -510,7 +526,7 @@ PyAPI_DATA(PyTypeObject*) object_cls;
 #define PyType_CheckExact(op) (Py_TYPE(op) == &PyType_Type)
 
 PyAPI_FUNC(int) PyType_Ready(PyTypeObject *) PYSTON_NOEXCEPT;
-PyAPI_FUNC(PyObject *) PyType_GenericAlloc(PyTypeObject *, Py_ssize_t) PYSTON_NOEXCEPT;
+PyAPI_FUNC(PYSTON_PASSED_REFERENCE(PyObject)) PyType_GenericAlloc(PYSTON_BORROWED_REFERENCE(PyTypeObject), Py_ssize_t) PYSTON_NOEXCEPT;
 PyAPI_FUNC(PyObject *) PyType_GenericNew(PyTypeObject *,
                                                PyObject *, PyObject *) PYSTON_NOEXCEPT;
 PyAPI_FUNC(PyObject *) _PyType_Lookup(PyTypeObject *, PyObject *) PYSTON_NOEXCEPT;
@@ -821,6 +837,7 @@ PyAPI_FUNC(void) _Py_AddToAllObjects(PyObject *, int force) PYSTON_NOEXCEPT;
 
 #define _Py_ForgetReference(op) _Py_INC_TPFREES(op)
 
+// Pyston change: add explicit cast to struct _typeobject
 #define _Py_Dealloc(op) (                               \
     _Py_INC_TPFREES(op) _Py_COUNT_ALLOCS_COMMA          \
     (*Py_TYPE(op)->tp_dealloc)((PyObject *)(op)))
@@ -900,7 +917,7 @@ where NULL (nil) is not suitable (since NULL often means 'error').
 Don't forget to apply Py_INCREF() when returning this value!!!
 */
 // Pyston change: replaced Py_None with just None
-PyAPI_DATA(PyObject*) None;
+PyAPI_DATA(PYSTON_STORED_REFERENCE(PyObject)) None;
 #define Py_None None
 //PyAPI_DATA(PyObject) _Py_NoneStruct; /* Don't use this directly */
 //#define Py_None (&_Py_NoneStruct)

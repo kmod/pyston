@@ -1078,8 +1078,7 @@ private:
 
     ConcreteCompilerVariable* getEllipsis() {
         llvm::Constant* ellipsis = embedRelocatablePtr(Ellipsis, g.llvm_value_type_ptr, "cEllipsis");
-        auto ellipsis_cls = Ellipsis->cls;
-        return new ConcreteCompilerVariable(typeFromClass(ellipsis_cls), ellipsis, false);
+        return new ConcreteCompilerVariable(typeFromClass(Ellipsis->cls), ellipsis, false);
     }
 
     llvm::Constant* embedParentModulePtr() {

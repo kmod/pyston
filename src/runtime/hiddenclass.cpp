@@ -52,13 +52,14 @@ void HiddenClass::gc_visit(GCVisitor* visitor) {
 #endif
 }
 
-void HiddenClass::appendAttribute(BoxedString* attr) {
+void HiddenClass::appendAttribute(BorrowedReference<BoxedString> attr) {
     assert(attr->interned_state != SSTATE_NOT_INTERNED);
     assert(type == SINGLETON);
     dependent_getattrs.invalidateAll();
-    assert(attr_offsets.count(attr) == 0);
+
+    assert(attr_offsets.count(attr.borrow()) == 0);
     int n = this->attributeArraySize();
-    attr_offsets[attr] = n;
+    attr_offsets[attr.take()] = n;
 }
 
 void HiddenClass::appendAttrwrapper() {

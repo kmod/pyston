@@ -44,12 +44,12 @@ private:
     }
 
     // These fields only make sense for NORMAL or SINGLETON hidden classes:
-    llvm::DenseMap<BoxedString*, int> attr_offsets;
+    llvm::DenseMap<BoxedString*, int> attr_offsets; // all owned references
     // If >= 0, is the offset where we stored an attrwrapper object
     int attrwrapper_offset = -1;
 
     // These are only for NORMAL hidden classes:
-    ContiguousMap<BoxedString*, HiddenClass*, llvm::DenseMap<BoxedString*, int>> children;
+    ContiguousMap<BoxedString*, HiddenClass*, llvm::DenseMap<BoxedString*, int>> children; // all owned references
     HiddenClass* attrwrapper_child = NULL;
 
     // Only for SINGLETON hidden classes:
@@ -102,9 +102,9 @@ public:
     HiddenClass* getOrMakeChild(BoxedString* attr);
 
     // Only valid for NORMAL or SINGLETON hidden classes:
-    int getOffset(BoxedString* attr) {
+    int getOffset(BorrowedReference<BoxedString> attr) {
         assert(type == NORMAL || type == SINGLETON);
-        auto it = attr_offsets.find(attr);
+        auto it = attr_offsets.find(attr.borrow());
         if (it == attr_offsets.end())
             return -1;
         return it->second;
@@ -116,7 +116,7 @@ public:
     }
 
     // Only valid for SINGLETON hidden classes:
-    void appendAttribute(BoxedString* attr);
+    void appendAttribute(BorrowedReference<BoxedString> attr);
     void appendAttrwrapper();
     void delAttribute(BoxedString* attr);
     void addDependence(Rewriter* rewriter);

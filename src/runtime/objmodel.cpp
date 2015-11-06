@@ -399,7 +399,7 @@ void BoxedClass::freeze() {
 }
 
 std::vector<BoxedClass*> classes;
-BoxedClass::BoxedClass(BoxedClass* base, gcvisit_func gc_visit, int attrs_offset, int weaklist_offset,
+BoxedClass::BoxedClass(BorrowedReference<BoxedClass, true> base, gcvisit_func gc_visit, int attrs_offset, int weaklist_offset,
                        int instance_size, bool is_user_defined, const char* name)
     : attrs(HiddenClass::makeSingleton()),
       gc_visit(gc_visit),
@@ -440,12 +440,12 @@ BoxedClass::BoxedClass(BoxedClass* base, gcvisit_func gc_visit, int attrs_offset
         assert(tp_base->tp_alloc);
         tp_alloc = tp_base->tp_alloc;
     } else {
-        assert(object_cls == NULL);
+        assert(!object_cls);
         tp_alloc = PystonType_GenericAlloc;
     }
 
-    if (cls == NULL) {
-        assert(type_cls == NULL);
+    if (cls == nullptr) {
+        assert(type_cls == nullptr);
     } else {
         // The (cls == type_cls) part of the check is important because during bootstrapping
         // we might not have set up enough stuff in order to do proper subclass checking,
@@ -487,7 +487,6 @@ BoxedClass::BoxedClass(BoxedClass* base, gcvisit_func gc_visit, int attrs_offset
     }
 
     if (base && cls && str_cls) {
-        Py_INCREF(base);
         giveAttr("__base__", base);
     }
 
@@ -500,8 +499,9 @@ BoxedClass::BoxedClass(BoxedClass* base, gcvisit_func gc_visit, int attrs_offset
         gc::registerPermanentRoot(this);
 }
 
-BoxedClass* BoxedClass::create(BoxedClass* metaclass, BoxedClass* base, gcvisit_func gc_visit, int attrs_offset,
-                               int weaklist_offset, int instance_size, bool is_user_defined, const char* name) {
+BoxedClass* BoxedClass::create(BoxedClass* metaclass, BorrowedReference<BoxedClass> base, gcvisit_func gc_visit,
+                               int attrs_offset, int weaklist_offset, int instance_size, bool is_user_defined,
+                               const char* name) {
     assert(!is_user_defined);
     BoxedClass* made = new (metaclass, 0)
         BoxedClass(base, gc_visit, attrs_offset, weaklist_offset, instance_size, is_user_defined, name);
@@ -547,7 +547,7 @@ BoxedHeapClass::BoxedHeapClass(BoxedClass* base, gcvisit_func gc_visit, int attr
     tp_flags |= Py_TPFLAGS_HEAPTYPE;
 
     if (!ht_name)
-        assert(str_cls == NULL);
+        assert(str_cls == nullptr);
 
     memset(&as_number, 0, sizeof(as_number));
     memset(&as_mapping, 0, sizeof(as_mapping));
@@ -561,7 +561,7 @@ BoxedHeapClass* BoxedHeapClass::create(BoxedClass* metaclass, BoxedClass* base, 
     BoxedHeapClass* made = new (metaclass, nslots)
         BoxedHeapClass(base, gc_visit, attrs_offset, weaklist_offset, instance_size, is_user_defined, name);
 
-    assert((name || str_cls == NULL) && "name can only be NULL before str_cls has been initialized.");
+    assert((name || str_cls == nullptr) && "name can only be NULL before str_cls has been initialized.");
 
     // While it might be ok if these were set, it'd indicate a difference in
     // expectations as to who was going to calculate them:
@@ -657,7 +657,8 @@ BoxedDict* Box::getDict() {
 
 static StatCounter box_getattr_slowpath("slowpath_box_getattr");
 
-template <Rewritable rewritable> Box* Box::getattr(BoxedString* attr, GetattrRewriteArgs* rewrite_args) {
+template <Rewritable rewritable>
+Box* Box::getattr(BorrowedReference<BoxedString> attr, GetattrRewriteArgs* rewrite_args) {
     if (rewritable == NOT_REWRITABLE) {
         assert(!rewrite_args);
         rewrite_args = NULL;
@@ -762,7 +763,7 @@ template <Rewritable rewritable> Box* Box::getattr(BoxedString* attr, GetattrRew
 
         BoxedDict* d = getDict();
 
-        auto it = d->d.find(attr);
+        auto it = d->d.find(attr.borrow());
         if (it == d->d.end()) {
             return NULL;
         }
@@ -774,12 +775,11 @@ template <Rewritable rewritable> Box* Box::getattr(BoxedString* attr, GetattrRew
 
     return NULL;
 }
-template Box* Box::getattr<REWRITABLE>(BoxedString*, GetattrRewriteArgs*);
-template Box* Box::getattr<NOT_REWRITABLE>(BoxedString*, GetattrRewriteArgs*);
+template Box* Box::getattr<REWRITABLE>(BorrowedReference<BoxedString>, GetattrRewriteArgs*);
+template Box* Box::getattr<NOT_REWRITABLE>(BorrowedReference<BoxedString>, GetattrRewriteArgs*);
 
-void Box::appendNewHCAttr(Box* new_attr, SetattrRewriteArgs* rewrite_args) {
+void Box::appendNewHCAttr(BorrowedReference<Box> new_attr, SetattrRewriteArgs* rewrite_args) {
     assert(!rewrite_args); // need to emit incref
-    Py_INCREF(new_attr);
 
     assert(cls->instancesHaveHCAttrs());
     HCAttrs* attrs = getHCAttrsPtr();
@@ -819,18 +819,20 @@ void Box::appendNewHCAttr(Box* new_attr, SetattrRewriteArgs* rewrite_args) {
 
         rewrite_args->out_success = true;
     }
-    attrs->attr_list->attrs[numattrs] = new_attr;
+
+    attrs->attr_list->attrs[numattrs].init(new_attr);
 }
 
-void Box::giveAttr(BoxedString* attr, Box* val) {
+void Box::giveAttr(Owned<BoxedString> attr, Owned<Box> val) {
     assert(!this->hasattr(attr));
     this->setattr(attr, val, NULL);
-    Py_DECREF(val);
-    Py_DECREF(attr);
+
+    attr.release();
+    val.release();
 }
 
-void Box::setattr(BoxedString* attr, Box* val, SetattrRewriteArgs* rewrite_args) {
-    assert(gc::isValidGCObject(val));
+void Box::setattr(BorrowedReference<BoxedString> attr, BorrowedReference<Box> val, SetattrRewriteArgs* rewrite_args) {
+    assert(gc::isValidGCObject(val.borrow()));
     assert(attr->interned_state != SSTATE_NOT_INTERNED);
 
     // Have to guard on the memory layout of this object.
@@ -936,7 +938,7 @@ void Box::setattr(BoxedString* attr, Box* val, SetattrRewriteArgs* rewrite_args)
 
     if (cls->instancesHaveDictAttrs()) {
         BoxedDict* d = getDict();
-        d->d[attr] = val;
+        d->d[(BoxedString*)attr] = val;
         return;
     }
 
@@ -5585,8 +5587,8 @@ void Box::delattr(BoxedString* attr, DelattrRewriteArgs* rewrite_args) {
         int num_attrs = hcls->attributeArraySize();
         int offset = hcls->getOffset(attr);
         assert(offset >= 0);
-        Box** start = attrs->attr_list->attrs;
-        memmove(start + offset, start + offset + 1, (num_attrs - offset - 1) * sizeof(Box*));
+        StoredReference<Box>* start = attrs->attr_list->attrs;
+        memmove(start + offset, start + offset + 1, (num_attrs - offset - 1) * sizeof(start[0]));
 
         if (hcls->type == HiddenClass::NORMAL) {
             HiddenClass* new_hcls = hcls->delAttrToMakeHC(attr);

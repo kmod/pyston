@@ -585,12 +585,18 @@ inline void internStringMortalInplace(BoxedString*& s) noexcept {
     PyString_InternInPlace((PyObject**)&s);
 }
 
+extern std::vector<BoxedClass*> classes;
+
+class BoxedDict;
+class BoxedString;
+
+
 // The data structure definition for hidden-class-based attributes.  Consists of a
 // pointer to the hidden class object, and a pointer to a variable-size attributes array.
 struct HCAttrs {
 public:
     struct AttrList {
-        Box* attrs[0];
+        StoredReference<Box> attrs[0];
     };
 
     HiddenClass* hcls;
@@ -600,10 +606,6 @@ public:
 };
 static_assert(sizeof(HCAttrs) == sizeof(struct _hcattrs), "");
 
-extern std::vector<BoxedClass*> classes;
-
-class BoxedDict;
-class BoxedString;
 
 // "Box" is the base class of any C++ type that implements a Python type.  For example,
 // BoxedString is the data structure that implements Python's str type, and BoxedString
@@ -617,19 +619,19 @@ private:
     BoxedDict** getDictPtr();
 
     // Appends a new value to the hcattrs array.
-    void appendNewHCAttr(Box* val, SetattrRewriteArgs* rewrite_args);
+    void appendNewHCAttr(BorrowedReference<Box> val, SetattrRewriteArgs* rewrite_args);
 
 public:
     // Add a no-op constructor to make sure that we don't zero-initialize cls
     Box() {}
 
-    void* operator new(size_t size, BoxedClass* cls) __attribute__((visibility("default")));
+    void* operator new(size_t size, BorrowedReference<BoxedClass> cls) __attribute__((visibility("default")));
     void operator delete(void* ptr) __attribute__((visibility("default"))) { abort(); }
 
     Py_ssize_t ob_refcnt;
 
     // Note: cls gets initialized in the new() function.
-    BoxedClass* cls;
+    StoredReference<BoxedClass> cls;
 
     llvm::iterator_range<BoxIterator> pyElements();
 
@@ -642,10 +644,9 @@ public:
     void setDict(BoxedDict* d);
 
 
-    void setattr(BoxedString* attr, Box* val, SetattrRewriteArgs* rewrite_args);
-    // giveAttr consumes a reference to val and attr
-    void giveAttr(const char* attr, Box* val) { giveAttr(internStringMortal(attr), val); }
-    void giveAttr(BoxedString* attr, Box* val);
+    void setattr(BorrowedReference<BoxedString> attr, BorrowedReference<Box> val, SetattrRewriteArgs* rewrite_args);
+    void giveAttr(const char* attr, OwnedReference<Box> val) { giveAttr(owned(internStringMortal(attr)), val.pass()); }
+    void giveAttr(OwnedReference<BoxedString> attr, OwnedReference<Box> val);
 
     // for debugging mostly:
     void clearAttrs();
@@ -653,9 +654,9 @@ public:
     // getattr() does the equivalent of PyDict_GetItem(obj->dict, attr): it looks up the attribute's value on the
     // object's attribute storage. it doesn't look at other objects or do any descriptor logic.
     template <Rewritable rewritable = REWRITABLE>
-    Box* getattr(BoxedString* attr, GetattrRewriteArgs* rewrite_args);
-    Box* getattr(BoxedString* attr) { return getattr<NOT_REWRITABLE>(attr, NULL); }
-    bool hasattr(BoxedString* attr) { return getattr(attr) != NULL; }
+    Box* getattr(BorrowedReference<BoxedString> attr, GetattrRewriteArgs* rewrite_args);
+    Box* getattr(BorrowedReference<BoxedString> attr) { return getattr<NOT_REWRITABLE>(attr, NULL); }
+    bool hasattr(BorrowedReference<BoxedString> attr) { return getattr(attr) != NULL; }
     void delattr(BoxedString* attr, DelattrRewriteArgs* rewrite_args);
 
     // Only valid for hc-backed instances:
@@ -673,7 +674,7 @@ public:
 static_assert(offsetof(Box, cls) == offsetof(struct _object, ob_type), "");
 
 // Our default for tp_alloc:
-extern "C" PyObject* PystonType_GenericAlloc(BoxedClass* cls, Py_ssize_t nitems) noexcept;
+extern "C" PassedReference<PyObject> PystonType_GenericAlloc(BorrowedReference<BoxedClass> cls, Py_ssize_t nitems) noexcept;
 
 // These are some macros for tying the C++ type hiercharchy to the Pyston type hiercharchy.
 // Classes that inherit from Box have a special operator new() that takes a class object (as
@@ -731,7 +732,7 @@ extern "C" PyObject* PystonType_GenericAlloc(BoxedClass* cls, Py_ssize_t nitems)
 // The restrictions on when you can use the SIMPLE (ie fast) variant are encoded as
 // asserts in the 1-arg operator new function:
 #define DEFAULT_CLASS_SIMPLE(default_cls)                                                                              \
-    void* operator new(size_t size, BoxedClass * cls) __attribute__((visibility("default"))) {                         \
+    void* operator new(size_t size, BorrowedReference<BoxedClass> cls) __attribute__((visibility("default"))) {                         \
         return Box::operator new(size, cls);                                                                           \
     }                                                                                                                  \
     void* operator new(size_t size) __attribute__((visibility("default"))) {                                           \
@@ -769,7 +770,7 @@ public:
 
     BoxVar() {}
 
-    void* operator new(size_t size, BoxedClass* cls, size_t nitems) __attribute__((visibility("default")));
+    void* operator new(size_t size, BorrowedReference<BoxedClass> cls, size_t nitems) __attribute__((visibility("default")));
 };
 static_assert(offsetof(BoxVar, ob_size) == offsetof(struct _varobject, ob_size), "");
 
@@ -781,7 +782,7 @@ static_assert(offsetof(BoxVar, ob_size) == offsetof(struct _varobject, ob_size),
         static_assert(std::is_base_of<BoxVar, std::remove_pointer<decltype(this)>::type>::value, "");                  \
     }                                                                                                                  \
                                                                                                                        \
-    void* operator new(size_t size, BoxedClass * cls, size_t nitems) __attribute__((visibility("default"))) {          \
+    void* operator new(size_t size, BorrowedReference<BoxedClass> cls, size_t nitems) __attribute__((visibility("default"))) {          \
         assert(cls->tp_itemsize == itemsize);                                                                          \
         return BoxVar::operator new(size, cls, nitems);                                                                \
     }                                                                                                                  \

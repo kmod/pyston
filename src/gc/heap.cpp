@@ -128,7 +128,7 @@ void _bytesAllocatedTripped() {
 //////
 /// Finalizers
 
-bool hasOrderedFinalizer(BoxedClass* cls) {
+bool hasOrderedFinalizer(BorrowedReference<BoxedClass> cls) {
     if (cls->has_safe_tp_dealloc) {
         ASSERT(!cls->tp_del, "class \"%s\" with safe tp_dealloc also has tp_del?", cls->tp_name);
         return false;

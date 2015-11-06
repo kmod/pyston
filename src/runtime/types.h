@@ -76,14 +76,14 @@ extern "C" Box* getSysStdout();
 extern "C" BoxedTuple* EmptyTuple;
 extern "C" BoxedString* EmptyString;
 
-extern "C" {
-extern BoxedClass* object_cls, *type_cls, *bool_cls, *int_cls, *long_cls, *float_cls, *str_cls, *function_cls,
-    *none_cls, *instancemethod_cls, *list_cls, *slice_cls, *module_cls, *dict_cls, *tuple_cls, *file_cls,
-    *enumerate_cls, *xrange_cls, *member_descriptor_cls, *null_importer_cls, *method_cls, *closure_cls, *generator_cls,
-    *complex_cls, *basestring_cls, *property_cls, *staticmethod_cls, *classmethod_cls, *attrwrapper_cls,
-    *pyston_getset_cls, *capi_getset_cls, *builtin_function_or_method_cls, *set_cls, *frozenset_cls, *code_cls,
-    *frame_cls, *capifunc_cls, *wrapperdescr_cls, *wrapperobject_cls;
-}
+extern "C" BoxedClass* bool_cls, *long_cls, *float_cls, *function_cls,
+    *instancemethod_cls, *list_cls, *slice_cls, *module_cls, *dict_cls, *file_cls, *enumerate_cls,
+    *xrange_cls, *member_descriptor_cls, *null_importer_cls, *method_cls, *closure_cls, *generator_cls, *complex_cls,
+    *property_cls, *staticmethod_cls, *classmethod_cls, *attrwrapper_cls, *pyston_getset_cls,
+    *capi_getset_cls, *builtin_function_or_method_cls, *set_cls, *frozenset_cls, *code_cls, *frame_cls, *capifunc_cls,
+    *wrapperdescr_cls, *wrapperobject_cls;
+extern "C" StoredReference<BoxedClass, false> object_cls, type_cls, none_cls, basestring_cls, str_cls, tuple_cls, int_cls;
+
 #define unicode_cls (&PyUnicode_Type)
 #define memoryview_cls (&PyMemoryView_Type)
 
@@ -117,7 +117,8 @@ extern BoxedClass* object_cls, *type_cls, *bool_cls, *int_cls, *long_cls, *float
 extern std::vector<BoxedClass*> exception_types;
 
 extern "C" {
-extern Box* None, *NotImplemented, *True, *False, *Ellipsis;
+extern Box* NotImplemented, *True, *False, *Ellipsis;
+extern StoredReference<Box> None;
 }
 extern "C" {
 extern Box* repr_obj, *len_obj, *hash_obj, *range_obj, *abs_obj, *min_obj, *max_obj, *open_obj, *id_obj, *chr_obj,
@@ -283,11 +284,12 @@ public:
     SlotOffset* slotOffsets() { return (BoxedClass::SlotOffset*)((char*)this + this->cls->tp_basicsize); }
 
     // These should only be used for builtin types:
-    static BoxedClass* create(BoxedClass* metatype, BoxedClass* base, gcvisit_func gc_visit, int attrs_offset,
-                              int weaklist_offset, int instance_size, bool is_user_defined, const char* name);
+    static BoxedClass* create(BoxedClass* metatype, BorrowedReference<BoxedClass> base, gcvisit_func gc_visit,
+                              int attrs_offset, int weaklist_offset, int instance_size, bool is_user_defined,
+                              const char* name);
 
-    BoxedClass(BoxedClass* base, gcvisit_func gc_visit, int attrs_offset, int weaklist_offset, int instance_size,
-               bool is_user_defined, const char* name);
+    BoxedClass(BorrowedReference<BoxedClass, true> base, gcvisit_func gc_visit, int attrs_offset, int weaklist_offset,
+               int instance_size, bool is_user_defined, const char* name);
 
 
     DEFAULT_CLASS_VAR(type_cls, sizeof(SlotOffset));
@@ -351,6 +353,46 @@ static_assert(offsetof(pyston::BoxedHeapClass, as_mapping) == offsetof(PyHeapTyp
 static_assert(offsetof(pyston::BoxedHeapClass, as_sequence) == offsetof(PyHeapTypeObject, as_sequence), "");
 static_assert(offsetof(pyston::BoxedHeapClass, as_buffer) == offsetof(PyHeapTypeObject, as_buffer), "");
 static_assert(sizeof(pyston::BoxedHeapClass) == sizeof(PyHeapTypeObject), "");
+
+template <typename B, bool Nullable> void OwnedReference<B, Nullable>::incref() noexcept {
+    if (Nullable)
+        Py_XINCREF(b);
+    else
+        Py_INCREF(b);
+}
+
+template <typename B, bool Nullable>
+PassedReference<B, Nullable>::PassedReference(B* b, bool already_owns) noexcept : b(b) {
+    if (!already_owns) {
+        if (Nullable)
+            Py_XINCREF(b);
+        else
+            Py_INCREF(b);
+    }
+}
+
+template <typename B, bool Nullable> void StoredReference<B, Nullable>::decref() {
+    if (Nullable)
+        Py_XDECREF(b);
+    else
+        Py_DECREF(b);
+}
+
+template <typename B, bool Nullable> void OwnedReference<B, Nullable>::release() {
+    this->disown();
+    if (Nullable)
+        Py_XDECREF(b);
+    else
+        Py_DECREF(b);
+}
+
+template <typename B, bool Nullable> void PassedReference<B, Nullable>::release() {
+    this->disown();
+    if (Nullable)
+        Py_XDECREF(b);
+    else
+        Py_DECREF(b);
+}
 
 class BoxedInt : public Box {
 public:
@@ -619,7 +661,8 @@ public:
             assert(gc::isValidGCObject(rtn->elts[i]));
         return rtn;
     }
-    static BoxedTuple* create(std::initializer_list<Box*> members) {
+
+    static BoxedTuple* create(std::initializer_list<BorrowedReference<Box>> members) {
         auto rtn = new (members.size()) BoxedTuple(members);
 
         for (int i = 0; i < rtn->size(); i++)
@@ -648,7 +691,7 @@ public:
         memmove(&rtn->elts[0], elts, sizeof(Box*) * nelts);
         return rtn;
     }
-    static BoxedTuple* create(std::initializer_list<Box*> members, BoxedClass* cls) {
+    static BoxedTuple* create(std::initializer_list<BorrowedReference<Box>> members, BoxedClass* cls) {
         if (cls == tuple_cls)
             return new (members.size()) BoxedTuple(members);
         else
@@ -695,10 +738,11 @@ public:
 private:
     BoxedTuple() {}
 
-    BoxedTuple(std::initializer_list<Box*>& members) {
+    BoxedTuple(std::initializer_list<BorrowedReference<Box>>& members) {
         // by the time we make it here elts[] is big enough to contain members
         Box** p = &elts[0];
-        for (auto b : members) {
+        for (auto r : members) {
+            Box* b = r.borrow();
             Py_INCREF(b);
             *p++ = b;
             assert(gc::isValidGCObject(b));
@@ -1140,9 +1184,6 @@ BoxedDict* attrwrapperToDict(Box* b);
 
 Box* boxAst(AST* ast);
 AST* unboxAst(Box* b);
-
-// Our default for tp_alloc:
-extern "C" PyObject* PystonType_GenericAlloc(BoxedClass* cls, Py_ssize_t nitems) noexcept;
 
 #define fatalOrError(exception, message)                                                                               \
     do {                                                                                                               \

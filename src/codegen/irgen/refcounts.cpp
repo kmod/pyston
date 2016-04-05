@@ -269,6 +269,14 @@ void addDecrefs(llvm::Value* v, bool nullable, int num_refs, llvm::Instruction* 
 
     assert(!nullable);
 
+    llvm::Function* patchpoint
+        = llvm::Intrinsic::getDeclaration(g.cur_module, llvm::Intrinsic::experimental_patchpoint_void);
+    int pp_id = DECREF_PP_ID;
+    int pp_size = DECREF_PP_SIZE;
+    builder.CreateCall(patchpoint, { getConstantInt(pp_id, g.i64), getConstantInt(pp_size, g.i32), getNullPtr(g.i8_ptr),
+                                     getConstantInt(1, g.i32), v });
+
+#if 0
     // Deal with subtypes of Box:
     while (v->getType() != g.llvm_value_type_ptr) {
         v = builder.CreateConstInBoundsGEP2_32(v, 0, 0);
@@ -330,6 +338,7 @@ void addDecrefs(llvm::Value* v, bool nullable, int num_refs, llvm::Instruction* 
     builder.CreateBr(continue_block);
 
     builder.SetInsertPoint(continue_block);
+#endif
 }
 
 void addCXXFixup(llvm::Instruction* inst, const llvm::SmallVector<llvm::TrackingVH<llvm::Value>, 4>& to_decref,

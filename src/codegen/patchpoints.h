@@ -34,6 +34,8 @@ static const int DECREF_PP_ID = 1000000;
 extern const int DECREF_PP_SIZE;
 static const int XDECREF_PP_ID = 1000001;
 extern const int XDECREF_PP_SIZE;
+static const int INCREF_PP_ID = 1000002;
+extern const int INCREF_PP_SIZE;
 
 static const int MAX_FRAME_SPILLS = 9; // TODO this shouldn't have to be larger than the set of non-callee-save args (9)
                                        // except that will we currently spill the same reg multiple times

@@ -195,11 +195,11 @@ void addIncrefs(llvm::Value* v, bool nullable, int num_refs, llvm::Instruction* 
     llvm::IRBuilder<true> builder(incref_pt);
 
     // Deal with subtypes of Box:
-    while (v->getType() != g.llvm_value_type_ptr) {
-        v = builder.CreateConstInBoundsGEP2_32(v, 0, 0);
-    }
-
     if (nullable) {
+        while (v->getType() != g.llvm_value_type_ptr) {
+            v = builder.CreateConstInBoundsGEP2_32(v, 0, 0);
+        }
+
         cur_block = incref_pt->getParent();
         continue_block = cur_block->splitBasicBlock(incref_pt);
         incref_block
@@ -215,6 +215,7 @@ void addIncrefs(llvm::Value* v, bool nullable, int num_refs, llvm::Instruction* 
         builder.SetInsertPoint(incref_block);
     }
 
+    /*
 #ifdef Py_REF_DEBUG
     auto reftotal_gv = g.cur_module->getOrInsertGlobal("_Py_RefTotal", g.i64);
     auto reftotal = builder.CreateLoad(reftotal_gv);
@@ -226,6 +227,19 @@ void addIncrefs(llvm::Value* v, bool nullable, int num_refs, llvm::Instruction* 
     auto refcount = builder.CreateLoad(refcount_ptr);
     auto new_refcount = builder.CreateAdd(refcount, getConstantInt(num_refs, g.i64));
     builder.CreateStore(new_refcount, refcount_ptr);
+    */
+
+
+    for (int i = 0; i < num_refs; i++) {
+        llvm::Function* patchpoint
+            = llvm::Intrinsic::getDeclaration(g.cur_module, llvm::Intrinsic::experimental_patchpoint_void);
+        //int pp_id = nullable ? XINCREF_PP_ID : INCREF_PP_ID;
+        //int pp_size = nullable ? XINCREF_PP_SIZE : INCREF_PP_SIZE;
+        int pp_id = INCREF_PP_ID;
+        int pp_size = INCREF_PP_SIZE;
+        builder.CreateCall(patchpoint, { getConstantInt(pp_id, g.i64), getConstantInt(pp_size, g.i32), getNullPtr(g.i8_ptr),
+                                         getConstantInt(1, g.i32), v });
+    }
 
     if (nullable)
         builder.CreateBr(continue_block);

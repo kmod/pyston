@@ -157,6 +157,10 @@ static char xdecref_code[] =
     "\xff\x50\x30"      // callq *0x30(%rax)
     ;
 
+static char incref_code[] =
+    "\x48\xff\x07"      // incq (%rdi)
+    ;
+
 #else // #ifdef Py_REF_DEBUG:
 static void _decref(Box* b) {
     Py_DECREF(b);
@@ -174,6 +178,14 @@ static char xdecref_code[] =
     "\xff\xd0"          // callq *%rax
     ;
 
+static void _incref(Box* b) {
+    Py_INCREF(b);
+}
+static char incref_code[] =
+    "\x48\xb8\x00\x00\x00\x00\x00\x00\x00\x00"  // movabs $0x00, %rax
+    "\xff\xd0"          // callq *%rax
+    ;
+
 namespace {
 class _Initializer {
 public:
@@ -183,6 +195,9 @@ public:
 
         p = (void*)&_xdecref;
         memcpy(xdecref_code+2, &p, sizeof(p));
+
+        p = (void*)&_incref;
+        memcpy(incref_code+2, &p, sizeof(p));
     }
 } _i;
 }
@@ -191,6 +206,7 @@ public:
 
 const int DECREF_PP_SIZE = sizeof(decref_code) - 1; // -1 for the NUL byte
 const int XDECREF_PP_SIZE = sizeof(xdecref_code) - 1; // -1 for the NUL byte
+const int INCREF_PP_SIZE = sizeof(incref_code) - 1; // -1 for the NUL byte
 
 void emitDecref(void* addr) {
     memcpy(addr, decref_code, DECREF_PP_SIZE);
@@ -198,6 +214,10 @@ void emitDecref(void* addr) {
 
 void emitXDecref(void* addr) {
     memcpy(addr, xdecref_code, XDECREF_PP_SIZE);
+}
+
+void emitIncref(void* addr) {
+    memcpy(addr, incref_code, INCREF_PP_SIZE);
 }
 
 void processStackmap(CompiledFunction* cf, StackMap* stackmap) {
@@ -222,6 +242,11 @@ void processStackmap(CompiledFunction* cf, StackMap* stackmap) {
 
         if (r->id == XDECREF_PP_ID) {
             emitXDecref((uint8_t*)cf->code + r->offset);
+            continue;
+        }
+
+        if (r->id == INCREF_PP_ID) {
+            emitIncref((uint8_t*)cf->code + r->offset);
             continue;
         }
 
@@ -359,6 +384,7 @@ PatchpointInfo* PatchpointInfo::create(CompiledFunction* parent_cf, const ICSetu
 
     assert(r->id != DECREF_PP_ID);
     assert(r->id != XDECREF_PP_ID);
+    assert(r->id != INCREF_PP_ID);
     return r;
 }
 

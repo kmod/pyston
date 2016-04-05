@@ -267,12 +267,12 @@ void addDecrefs(llvm::Value* v, bool nullable, int num_refs, llvm::Instruction* 
         return;
     }
 
-    assert(!nullable);
+    RELEASE_ASSERT(num_refs == 1, "decref patchpoints don't support >1 refs");
 
     llvm::Function* patchpoint
         = llvm::Intrinsic::getDeclaration(g.cur_module, llvm::Intrinsic::experimental_patchpoint_void);
-    int pp_id = DECREF_PP_ID;
-    int pp_size = DECREF_PP_SIZE;
+    int pp_id = nullable ? XDECREF_PP_ID : DECREF_PP_ID;
+    int pp_size = nullable ? XDECREF_PP_SIZE : DECREF_PP_SIZE;
     builder.CreateCall(patchpoint, { getConstantInt(pp_id, g.i64), getConstantInt(pp_size, g.i32), getNullPtr(g.i8_ptr),
                                      getConstantInt(1, g.i32), v });
 

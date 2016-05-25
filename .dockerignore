@@ -1,0 +1,7 @@
+*_env_*
+perf_map
+*.log
+pyston_*
+build
+# Our build tries to run `git submodule update`
+# .git

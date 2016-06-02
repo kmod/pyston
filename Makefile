@@ -421,14 +421,16 @@ run_unittests:: run_$1_unittests
 )
 endef
 
-GDB_CMDS := $(GDB_PRE_CMDS) --ex "source pyston_gdbinit.txt" --ex "run" --ex "bt 20" $(GDB_POST_CMDS)
 BR ?=
 ARGS ?=
+BR_TXT ?=
 ifneq ($(BR),)
-	override GDB_CMDS := --ex "break $(BR)" $(GDB_CMDS)
+	BR_TXT := --ex "break $(BR)"
 endif
-$(call add_unittest,gc)
-$(call add_unittest,analysis)
+
+define get_gdb_cmd
+$(GDB) $(GDB_PRE_CMDS) -q -x pyston_gdbinit.txt --ex "file '$1'" --ex "set args $2" $(BR_TEXT) --ex "run" --ex "bt 20" $(GDB_POST_CMDS)
+endef
 
 
 define checksha
@@ -784,12 +786,12 @@ check$1 test$1: $(PYTHON_EXE_DEPS) pyston$1
 run$1: pyston$1 $$(RUN_DEPS)
 	PYTHONPATH=test/test_extension:$${PYTHONPATH} ./pyston$1 $$(ARGS)
 dbg$1: pyston$1 $$(RUN_DEPS)
-	PYTHONPATH=test/test_extension:$${PYTHONPATH} zsh -c 'ulimit -m $$(MAX_DBG_MEM_KB); $$(GDB) $$(GDB_CMDS) --args ./pyston$1 $$(ARGS)'
+	PYTHONPATH=test/test_extension:$${PYTHONPATH} zsh -c 'ulimit -m $$(MAX_DBG_MEM_KB); $$(call get_gdb_cmd,./pyston$1,$$(ARGS))'
 nosearch_run$1_%: %.py pyston$1 $$(RUN_DEPS)
-	$(VERB) PYTHONPATH=test/test_extension:$${PYTHONPATH} zsh -c 'ulimit -m $$(MAX_MEM_KB); time ./pyston$1 $$(ARGS) $$<'
+	$(VERB) PYTHONPATH=test/test_extension:$${PYTHONPATH} zsh -c 'ulimit -m $$(MAX_MEM_KB); /usr/bin/time -v ./pyston$1 $$(ARGS) $$<'
 $$(call make_search,run$1_%)
 nosearch_dbg$1_%: %.py pyston$1 $$(RUN_DEPS)
-	$(VERB) PYTHONPATH=test/test_extension:$${PYTHONPATH} zsh -c 'ulimit -m $$(MAX_DBG_MEM_KB); $$(GDB) $$(GDB_CMDS) --args ./pyston$1 $$(ARGS) $$<'
+	$(VERB) PYTHONPATH=test/test_extension:$${PYTHONPATH} zsh -c 'ulimit -m $$(MAX_DBG_MEM_KB); $$(call get_gdb_cmd,./pyston$1,$$(ARGS) $$<)'
 $$(call make_search,dbg$1_%)
 
 ifneq ($$(ENABLE_VALGRIND),0)
@@ -844,9 +846,9 @@ $(call make_target,_gcc)
 $(call make_target,_release_gcc)
 
 nosearch_runpy_% nosearch_pyrun_%: %.py ext_python
-	$(VERB) PYTHONPATH=test/test_extension/build/lib.linux-x86_64-2.7:$${PYTHONPATH} zsh -c 'time $(CPYTHON) $<'
+	$(VERB) PYTHONPATH=test/test_extension/build/lib.linux-x86_64-2.7:$${PYTHONPATH} zsh -c '/usr/bin/time -v $(CPYTHON) $<'
 nosearch_pypyrun_%: %.py ext_python
-	$(VERB) PYTHONPATH=test/test_extension/build/lib.linux-x86_64-2.7:$${PYTHONPATH} zsh -c 'time $(PYPY) $<'
+	$(VERB) PYTHONPATH=test/test_extension/build/lib.linux-x86_64-2.7:$${PYTHONPATH} zsh -c '/usr/bin/time -v $(PYPY) $<'
 $(call make_search,runpy_%)
 $(call make_search,pyrun_%)
 $(call make_search,pypyrun_%)

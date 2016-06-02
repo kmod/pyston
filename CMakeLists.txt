@@ -323,6 +323,9 @@ add_dependencies(pyston libjemalloc)
 # copy src/codegen/parse_ast.py to the build directory
 add_custom_command(TARGET pyston POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/src/codegen/parse_ast.py ${CMAKE_BINARY_DIR}/src/codegen/parse_ast.py)
 
+# Copy our gdb helper:
+add_custom_command(TARGET pyston POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_SOURCE_DIR}/tools/pyston-gdb.py ${CMAKE_BINARY_DIR}/pyston-gdb.py)
+
 add_custom_target(astcompare COMMAND ${CMAKE_SOURCE_DIR}/tools/astprint_test.sh
                   DEPENDS astprint
                   COMMENT "Running libpypa vs CPython AST result comparison test")
@@ -411,6 +414,8 @@ set(CPACK_RESOURCE_FILE_LICENSE ${CMAKE_SOURCE_DIR}/LICENSE)
 set(CPACK_PACKAGE_DESCRIPTION_FILE ${CMAKE_SOURCE_DIR}/README.md)
 
 install(FILES LICENSE README.md DESTINATION ".")
+
+install(FILES tools/pyston-gdb.py DESTINATION ".")
 
 install(FILES test/lib/virtualenv/virtualenv.py DESTINATION virtualenv)
 install(FILES test/lib/virtualenv/virtualenv_support/pip-6.0.8-py2.py3-none-any.whl DESTINATION virtualenv/virtualenv_support)

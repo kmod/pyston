@@ -4932,7 +4932,7 @@ extern "C" void Py_Finalize() noexcept {
             _PyGC_FindLeaks();
 #endif
 
-        RELEASE_ASSERT(_Py_RefTotal == 0, "%ld refs remaining!", _Py_RefTotal);
+        //RELEASE_ASSERT(_Py_RefTotal == 0, "%ld refs remaining!", _Py_RefTotal);
     }
 #endif // Py_REF_DEBUG
 }

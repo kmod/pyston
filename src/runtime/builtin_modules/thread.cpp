@@ -264,14 +264,14 @@ void setupThread() {
                               new BoxedFunction(BoxedCode::create((void*)BoxedThreadLock::acquire, BOXED_BOOL, 2, false,
                                                                   false, "thread_lock.acquire"),
                                                 { autoDecref(boxInt(1)) }));
-    thread_lock_cls->giveAttr("release", new BoxedFunction(BoxedCode::create((void*)BoxedThreadLock::release, NONE, 1,
+    thread_lock_cls->giveAttr("release", new BoxedFunction(BoxedCode::create((void*)BoxedThreadLock::release, UNKNOWN, 1,
                                                                              "thread_lock.release")));
     thread_lock_cls->giveAttrBorrowed("acquire_lock", thread_lock_cls->getattr(getStaticString("acquire")));
     thread_lock_cls->giveAttrBorrowed("release_lock", thread_lock_cls->getattr(getStaticString("release")));
     thread_lock_cls->giveAttrBorrowed("__enter__", thread_lock_cls->getattr(getStaticString("acquire")));
     thread_lock_cls->giveAttr("__exit__", new BoxedFunction(BoxedCode::create((void*)BoxedThreadLock::exit, NONE, 4,
                                                                               "thread_lock.__exit__")));
-    thread_lock_cls->giveAttr("locked", new BoxedFunction(BoxedCode::create((void*)BoxedThreadLock::locked, BOXED_BOOL,
+    thread_lock_cls->giveAttr("locked", new BoxedFunction(BoxedCode::create((void*)BoxedThreadLock::locked, UNKNOWN,
                                                                             1, "thread_lock.locked")));
     thread_lock_cls->giveAttrBorrowed("locked_lock", thread_lock_cls->getattr(getStaticString("locked")));
     thread_lock_cls->freeze();

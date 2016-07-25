@@ -1023,6 +1023,48 @@ static std::string getUniqueFunctionName(std::string nameprefix, EffortLevel eff
     return os.str();
 }
 
+static void compileIR(CompiledFunction* cf, EffortLevel effort) {
+    assert(cf);
+    assert(cf->func);
+
+    void* compiled = NULL;
+    cf->code = NULL;
+
+    {
+        Timer _t("to jit the IR");
+#if LLVMREV < 215967
+        g.engine->addModule(cf->func->getParent());
+#else
+        g.engine->addModule(std::unique_ptr<llvm::Module>(cf->func->getParent()));
+#endif
+
+        g.cur_cf = cf;
+        void* compiled = (void*)g.engine->getFunctionAddress(cf->func->getName());
+        g.cur_cf = NULL;
+        assert(compiled);
+        ASSERT(compiled == cf->code, "cf->code should have gotten filled in");
+
+        long us = _t.end();
+        static StatCounter us_jitting("us_compiling_jitting");
+        us_jitting.log(us);
+        static StatCounter num_jits("num_jits");
+        num_jits.log();
+
+        if (VERBOSITY() >= 1 && us > 100000) {
+            printf("Took %.1fs to compile %s\n", us * 0.000001, cf->func->getName().data());
+            printf("Has %ld basic blocks\n", cf->func->getBasicBlockList().size());
+        }
+    }
+
+    if (VERBOSITY("irgen") >= 2) {
+        printf("Compiled function to %p\n", cf->code);
+    }
+
+    StackMap* stackmap = parseStackMap();
+    processStackmap(cf, stackmap);
+    delete stackmap;
+}
+
 CompiledFunction* doCompile_(FunctionMetadata* md, SourceInfo* source, ParamNames* param_names,
                             const OSREntryDescriptor* entry_descriptor, EffortLevel effort,
                             ExceptionStyle exception_style, FunctionSpecialization* spec, llvm::StringRef nameprefix) {
@@ -1187,6 +1229,8 @@ CompiledFunction* doCompile_(FunctionMetadata* md, SourceInfo* source, ParamName
     }
 
     g.cur_module = NULL;
+
+    compileIR(cf, effort);
 
     return cf;
 }

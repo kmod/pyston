@@ -2012,36 +2012,39 @@ Box* astInterpretFunction(FunctionMetadata* md, Box* closure, Box* generator, Bo
 
         // this also pushes the new CompiledVersion to the back of the version list:
         CompiledFunction* optimized = compileFunction(md, spec, new_effort, NULL);
+        if (!optimized) {
+            md->times_interpreted = INT_MIN;
+        } else {
+            md->dependent_interp_callsites.invalidateAll();
 
-        md->dependent_interp_callsites.invalidateAll();
+            UNAVOIDABLE_STAT_TIMER(t0, "us_timer_in_jitted_code");
+            Box* r;
+            Box* maybe_args[3];
+            int nmaybe_args = 0;
+            if (closure)
+                maybe_args[nmaybe_args++] = closure;
+            if (generator)
+                maybe_args[nmaybe_args++] = generator;
+            if (globals)
+                maybe_args[nmaybe_args++] = globals;
+            if (nmaybe_args == 0)
+                r = optimized->call(arg1, arg2, arg3, args);
+            else if (nmaybe_args == 1)
+                r = optimized->call1(maybe_args[0], arg1, arg2, arg3, args);
+            else if (nmaybe_args == 2)
+                r = optimized->call2(maybe_args[0], maybe_args[1], arg1, arg2, arg3, args);
+            else {
+                assert(nmaybe_args == 3);
+                r = optimized->call3(maybe_args[0], maybe_args[1], maybe_args[2], arg1, arg2, arg3, args);
+            }
 
-        UNAVOIDABLE_STAT_TIMER(t0, "us_timer_in_jitted_code");
-        Box* r;
-        Box* maybe_args[3];
-        int nmaybe_args = 0;
-        if (closure)
-            maybe_args[nmaybe_args++] = closure;
-        if (generator)
-            maybe_args[nmaybe_args++] = generator;
-        if (globals)
-            maybe_args[nmaybe_args++] = globals;
-        if (nmaybe_args == 0)
-            r = optimized->call(arg1, arg2, arg3, args);
-        else if (nmaybe_args == 1)
-            r = optimized->call1(maybe_args[0], arg1, arg2, arg3, args);
-        else if (nmaybe_args == 2)
-            r = optimized->call2(maybe_args[0], maybe_args[1], arg1, arg2, arg3, args);
-        else {
-            assert(nmaybe_args == 3);
-            r = optimized->call3(maybe_args[0], maybe_args[1], maybe_args[2], arg1, arg2, arg3, args);
-        }
-
-        if (optimized->exception_style == CXX)
-            return r;
-        else {
-            if (!r)
-                throwCAPIException();
-            return r;
+            if (optimized->exception_style == CXX)
+                return r;
+            else {
+                if (!r)
+                    throwCAPIException();
+                return r;
+            }
         }
     }
 

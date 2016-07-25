@@ -22,7 +22,13 @@ using namespace pyston::assembler;
 namespace pyston {
 
 Location evalExpr(AST_expr* expr) {
-    assert(0);
+    if (expr->type == AST_TYPE::MakeFunction || expr->type == AST_TYPE::MakeClass) {
+        if (VERBOSITY())
+            printf("Aborting sjit; unhandled expr type %d\n", expr->type);
+        return Location();
+    }
+
+    RELEASE_ASSERT(0, "");
 }
 
 CompiledFunction* doCompile(FunctionMetadata* md, SourceInfo* source, ParamNames* param_names,
@@ -54,6 +60,9 @@ CompiledFunction* doCompile(FunctionMetadata* md, SourceInfo* source, ParamNames
             if (stmt->type == AST_TYPE::Assign) {
                 auto asgn = ast_cast<AST_Assign>(stmt);
                 auto val = evalExpr(asgn->value);
+                if (val.type == Location::Uninitialized)
+                    return NULL;
+
                 assert(asgn->targets.size() == 1);
                 assert(asgn->targets[0]->type == AST_TYPE::Name);
 

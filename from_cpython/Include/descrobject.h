@@ -40,10 +40,12 @@ struct wrapperbase {
 
 /* Flags for above struct */
 #define PyWrapperFlag_KEYWORDS 1 /* wrapper function takes keyword args */
+// Pyston additions:
 #define PyWrapperFlag_PYSTON   2 /* wrapper function is a Pyston function */
-#define PyWrapperFlag_BOOL     4 /* not really a wrapper, just set a bool field */
-#define PyWrapperFlag_1ARG     8 /* wrapper function takes 1 argument */
-#define PyWrapperFlag_2ARG    16 /* wrapper function takes 2 arguments */
+#define PyWrapperFlag_1ARG     4 /* wrapper function takes 1 argument */
+#define PyWrapperFlag_2ARG     8 /* wrapper function takes 2 arguments */
+#define PyWrapperFlag_CALLBACK 16 /* not really a wrapper: call (void*)(*function)(BoxedClass*) instead of doing the normal slotdef */
+#define PyWrapperFlag_BOOL 32    /* TODO: get rid of this (replace with CALLBACK) */
 
 /* Various kinds of descriptor objects */
 

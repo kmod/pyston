@@ -656,51 +656,6 @@ static Box* typeTppCall(Box* self, CallRewriteArgs* rewrite_args, ArgPassSpec ar
     return typeCallInner<S>(rewrite_args, new_argspec, arg1, arg2, arg3, new_args, keyword_names);
 }
 
-template <ExceptionStyle S>
-static Box* typeCallInternal(BoxedFunctionBase* f, CallRewriteArgs* rewrite_args, ArgPassSpec argspec, Box* arg1,
-                             Box* arg2, Box* arg3, Box** args,
-                             const std::vector<BoxedString*>* keyword_names) noexcept(S == CAPI) {
-    if (rewrite_args)
-        assert(rewrite_args->func_guarded);
-
-    static StatCounter slowpath_typecall("slowpath_typecall");
-    slowpath_typecall.log();
-
-    if (argspec.has_starargs || argspec.num_args == 0) {
-        // Get callFunc to expand the arguments.
-        // TODO: update this to use rearrangeArguments instead.
-        KEEP_ALIVE(f);
-        return callFunc<S>(f, rewrite_args, argspec, arg1, arg2, arg3, args, keyword_names);
-    }
-
-    return typeCallInner<S>(rewrite_args, argspec, arg1, arg2, arg3, args, keyword_names);
-}
-
-// This function only exists for the corner case in typeCallInternal that should get removed anyway:
-Box* typeCall(Box* obj, BoxedTuple* vararg, BoxedDict* kwargs) {
-    assert(vararg->cls == tuple_cls);
-
-    bool pass_kwargs = (kwargs && kwargs->d.size());
-
-    int n = vararg->size();
-    int args_to_pass = n + 1 + (pass_kwargs ? 1 : 0); // 1 for obj, 1 for kwargs
-
-    Box** args = NULL;
-    if (args_to_pass > 3)
-        args = (Box**)alloca(sizeof(Box*) * (args_to_pass - 3));
-
-    Box* arg1, *arg2, *arg3;
-    arg1 = obj;
-    for (int i = 0; i < n; i++) {
-        getArg(i + 1, arg1, arg2, arg3, args) = vararg->elts[i];
-    }
-
-    if (pass_kwargs)
-        getArg(n + 1, arg1, arg2, arg3, args) = kwargs;
-
-    return typeCallInternal<CXX>(NULL, NULL, ArgPassSpec(n + 1, 0, false, pass_kwargs), arg1, arg2, arg3, args, NULL);
-}
-
 // For use on __init__ return values
 static Box* assertInitNone(STOLEN(Box*) rtn, STOLEN(Box*) obj) {
     AUTO_DECREF(rtn);
@@ -4377,15 +4332,9 @@ void setupRuntime() {
     // but unfortunately that will set tp_setattro to slot_tp_setattro on object_cls and all already-made subclasses!
     // Punting on that until needed; hopefully by then we will have better Pyston slots support.
 
-    auto typeCallObj = FunctionMetadata::create((void*)typeCall, UNKNOWN, 1, true, true);
-    typeCallObj->internal_callable.capi_val = &typeCallInternal<CAPI>;
-    typeCallObj->internal_callable.cxx_val = &typeCallInternal<CXX>;
-
     type_cls->giveAttrDescriptor("__name__", type_name, type_set_name);
     type_cls->giveAttrDescriptor("__bases__", type_bases, (setter)type_set_bases);
     type_cls->giveAttrDescriptor("__abstractmethods__", (getter)type_abstractmethods, (setter)type_set_abstractmethods);
-
-    type_cls->giveAttr("__call__", new BoxedFunction(typeCallObj));
 
     type_cls->giveAttr(
         "__new__",
@@ -4401,13 +4350,15 @@ void setupRuntime() {
                        new BoxedFunction(FunctionMetadata::create((void*)typeSubclasses, UNKNOWN, 1)));
     type_cls->giveAttr("mro", new BoxedFunction(FunctionMetadata::create((void*)typeMro, UNKNOWN, 1)));
     type_cls->tp_richcompare = type_richcompare;
+    type_cls->tpp_call.capi_val = &typeTppCall<CAPI>;
+    type_cls->tpp_call.cxx_val = &typeTppCall<CXX>;
+    type_cls->tp_call = proxyToTppCall<typeTppCall<CAPI>>;
+
     add_operators(type_cls);
     type_cls->freeze();
 
     type_cls->tp_new = type_new;
     type_cls->tp_repr = type_repr;
-    type_cls->tpp_call.capi_val = &typeTppCall<CAPI>;
-    type_cls->tpp_call.cxx_val = &typeTppCall<CXX>;
 
     none_cls->giveAttr("__repr__", new BoxedFunction(FunctionMetadata::create((void*)none_repr, STR, 1)));
     none_cls->giveAttr("__nonzero__", new BoxedFunction(FunctionMetadata::create((void*)noneNonzero, BOXED_BOOL, 1)));

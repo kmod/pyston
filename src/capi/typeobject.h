@@ -61,7 +61,12 @@ Box* slotTpGetattrHookInternal(Box* self, BoxedString* attr, GetattrRewriteArgs*
                                BORROWED(Box**) bind_obj_out, RewriterVar** r_bind_obj_out) noexcept(S == CAPI);
 
 // Set a class's tp_call to this to have calls to tp_call (and __call__) proxy to tpp_call
-Box* proxyToTppCall(Box* self, Box* args, Box* kw) noexcept;
+template <decltype(BoxedClass::tpp_call.capi_val) tpp_call>
+Box* proxyToTppCall(Box* self, Box* args, Box* kw) noexcept {
+    //assert(self->cls->tpp_call.get<CAPI>() != NULL && self->cls->tpp_call.get<CAPI>() != &tppProxyToTpCall<CAPI>);
+    return self->cls->tpp_call.call<CAPI>(self, NULL, ArgPassSpec(0, 0, true, true), args, kw, NULL, NULL, NULL);
+}
+
 
 int add_methods(PyTypeObject* type, PyMethodDef* meth) noexcept;
 }

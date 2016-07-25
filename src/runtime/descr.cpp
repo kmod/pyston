@@ -632,22 +632,22 @@ void setupDescr() {
 
     wrappertype.tpp_call.capi_val = wrapperObjectTppCall<CAPI>;
     wrappertype.tpp_call.cxx_val = wrapperObjectTppCall<CXX>;
-    wrappertype.tp_call = proxyToTppCall;
+    wrappertype.tp_call = proxyToTppCall<wrapperObjectTppCall<CAPI>>;
     PyType_Ready(&wrappertype);
 
     PyWrapperDescr_Type.tpp_call.capi_val = wrapperDescrTppCall<CAPI>;
     PyWrapperDescr_Type.tpp_call.cxx_val = wrapperDescrTppCall<CXX>;
-    PyWrapperDescr_Type.tp_call = proxyToTppCall;
+    PyWrapperDescr_Type.tp_call = proxyToTppCall<wrapperDescrTppCall<CAPI>>;
     PyType_Ready(&PyWrapperDescr_Type);
 
     PyMethodDescr_Type.tpp_call.capi_val = methodDescrTppCall<CAPI>;
     PyMethodDescr_Type.tpp_call.cxx_val = methodDescrTppCall<CXX>;
-    PyMethodDescr_Type.tp_call = proxyToTppCall;
+    PyMethodDescr_Type.tp_call = proxyToTppCall<methodDescrTppCall<CAPI>>;
     PyType_Ready(&PyMethodDescr_Type);
 
     PyClassMethodDescr_Type.tpp_call.capi_val = methodDescrTppCall<CAPI>;
     PyClassMethodDescr_Type.tpp_call.cxx_val = methodDescrTppCall<CXX>;
-    PyClassMethodDescr_Type.tp_call = proxyToTppCall;
+    PyClassMethodDescr_Type.tp_call = proxyToTppCall<methodDescrTppCall<CAPI>>;
     PyType_Ready(&PyClassMethodDescr_Type);
 }
 }

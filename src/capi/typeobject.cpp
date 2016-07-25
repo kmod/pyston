@@ -92,6 +92,52 @@ static PyObject* wrap_call(PyObject* self, PyObject* args, void* wrapped, PyObje
     return (*func)(self, args, kwds);
 }
 
+template <ExceptionStyle S>
+static Box* tppProxyToTpCall(Box* self, CallRewriteArgs* rewrite_args, ArgPassSpec argspec, Box* arg1, Box* arg2,
+                             Box* arg3, Box** args,
+                             const std::vector<BoxedString*>* keyword_names) noexcept(S == CAPI) {
+    assert(0 &&" does this need to be updated? what if self is a subclass of the class that has tppProxyToTpCall set?");
+    ParamReceiveSpec paramspec(0, 0, true, true);
+    if (!argspec.has_kwargs && argspec.num_keywords == 0) {
+        paramspec.takes_kwargs = false;
+    }
+
+    auto continuation = [=](CallRewriteArgs* rewrite_args, Box* arg1, Box* arg2, Box* arg3, Box** args) {
+        if (!paramspec.takes_kwargs)
+            arg2 = NULL;
+
+        if (rewrite_args) {
+            if (!paramspec.takes_kwargs)
+                rewrite_args->arg2 = rewrite_args->rewriter->loadConst(0, Location::forArg(2));
+
+            // Currently, guard that the value of tp_call didn't change, and then
+            // emit a call to the current function address.
+            // It might be better to just load the current value of tp_call and call it
+            // (after guarding it's not null), or maybe not.  But the rewriter doesn't currently
+            // support calling a RewriterVar (can only call fixed function addresses).
+            RewriterVar* r_cls = rewrite_args->obj->getAttr(offsetof(Box, cls));
+            r_cls->addAttrGuard(offsetof(BoxedClass, tp_call), (intptr_t)self->cls->tp_call);
+
+            rewrite_args->out_rtn = rewrite_args->rewriter->call(true, (void*)self->cls->tp_call, rewrite_args->obj,
+                                                                 rewrite_args->arg1, rewrite_args->arg2);
+            rewrite_args->out_rtn->setType(RefType::OWNED);
+            if (S == CXX)
+                rewrite_args->rewriter->checkAndThrowCAPIException(rewrite_args->out_rtn);
+            rewrite_args->out_success = true;
+        }
+
+        Box* r = self->cls->tp_call(self, arg1, arg2);
+        if (S == CXX && !r)
+            throwCAPIException();
+        return r;
+    };
+
+    return callCXXFromStyle<S>([&]() {
+        return rearrangeArgumentsAndCall(paramspec, NULL, "", NULL, rewrite_args, argspec, arg1, arg2, arg3, args,
+                                         keyword_names, continuation);
+    });
+}
+
 static PyObject* wrap_richcmpfunc(PyObject* self, PyObject* other, void* wrapped, int op) noexcept {
     STAT_TIMER(t0, "us_timer_wrap_richcmpfunc", WRAP_AVOIDABILITY(self));
     richcmpfunc func = (richcmpfunc)wrapped;
@@ -1611,6 +1657,93 @@ SLOT1(slot_nb_inplace_true_divide, "__itruediv__", PyObject*, "O")
 
 typedef wrapperbase slotdef;
 
+template <ExceptionStyle S> static void update_tppcall(BoxedClass* type, Box* descr, const slotdef* p) noexcept {
+    /*
+     * A few cases to support:
+     * - No callables.  tpp_call should be NULL.
+     * - Python callable.  tp_call should be slot_tp_call, tpp_call should be NULL
+     * - Python callable and tp_call.
+     *
+     * If a custom __call__ is set:
+     * - we can allow a custom tp_call for optimization, but should move away from this
+     * - tpp_call should be NULL (or eventually runtimeCall)
+     *
+     * If a custsom tp_call is set:
+     * - we can allow a custom __call__ as above
+     * - tpp_call should be tppProxyToTpCall
+     *
+     * A custom tpp_call is only allowed if tp_call is proxyToTppCall.
+     *
+     *
+     * Custom   __call__    tp_call     tpp_call
+     *          N           N           N           OK
+     *          Y           N           N           tp_call should get set to slot_tp_call
+     *          N           Y           N           __call__ should get set to wrap_call, tpp_call should get set to tppProxyToTpCall
+     *          Y           Y           N
+     *          N           N           Y           tp_call should get set to proxyToTppCall, __call__ should get set to wrap_call
+     *          N           N           N
+     *          N           N           N
+     */
+
+    if (type->tp_name == std::string("M"))
+        printf("");
+
+    bool custom_py_call = (bool)descr;
+    if (descr && Py_TYPE(descr) == &PyWrapperDescr_Type) {
+        PyWrapperDescrObject* d = (PyWrapperDescrObject*)descr;
+        if (d->d_base->name_strobj == p->name_strobj && PyType_IsSubtype(type, d->d_type)) {
+            if (d->d_base->wrapper == (wrapperfunc)wrap_call) {
+                custom_py_call = false;
+            }
+        }
+    }
+
+    assert(0 && "this needs to be updated, could be proxyToTpp");
+    bool custom_tp_call = (bool)type->tp_call;
+    /*
+    if (type->tp_call == proxyToTppCall) {
+        assert(type->tpp_call.get<CAPI>() != NULL && type->tpp_call.get<CAPI>() != &tppProxyToTpCall<CAPI>);
+        custom_tp_call = false;
+    } else */if (type->tp_call == slot_tp_call) {
+        assert(custom_py_call);
+        custom_tp_call = false;
+    }
+
+    bool custom_tpp_call = (bool)type->tpp_call.get<CAPI>();
+    assert(custom_tpp_call == (bool)type->tpp_call.get<CXX>());
+    if (type->tpp_call.get<CAPI>() == tppProxyToTpCall<CAPI>) {
+        assert(type->tpp_call.get<CXX>() == tppProxyToTpCall<CXX>);
+        custom_tpp_call = false;
+    }
+
+    if (!custom_py_call && !custom_tp_call && !custom_tpp_call) {
+        assert(!type->tp_call);
+        assert(!type->tpp_call.get<CAPI>());
+        assert(!type->tpp_call.get<CXX>());
+        return;
+    }
+
+    if (custom_tp_call) {
+        type->tpp_call.get<CAPI>() = tppProxyToTpCall<CAPI>;
+        type->tpp_call.get<CXX>() = tppProxyToTpCall<CXX>;
+        return;
+    }
+
+    if (custom_py_call) {
+        type->tpp_call.get<CAPI>() = NULL;
+        type->tpp_call.get<CXX>() = NULL;
+        return;
+    }
+
+    if (custom_tpp_call) {
+        assert(!custom_tp_call);
+        assert(!custom_py_call);
+        return;
+    }
+
+    ASSERT(0, "%d %d %d\n", custom_py_call, custom_tp_call, custom_tpp_call);
+}
+
 static void** slotptr(BoxedClass* type, int offset) noexcept {
     // We use the index into PyHeapTypeObject as the canonical way to represent offsets, even though we are not
     // (currently) using that object representation
@@ -1730,6 +1863,8 @@ static slotdef slotdefs[] = {
     FLSLOT("__subclasscheck__", has_subclasscheck, NULL, NULL, NULL, PyWrapperFlag_BOOL),
     FLSLOT("__getattribute__", has_getattribute, NULL, NULL, NULL, PyWrapperFlag_BOOL),
     TPPSLOT_1ARG("__hasnext__", tpp_hasnext, slotTppHasnext, wrapInquirypred, "hasnext"),
+    FLSLOT("__call__", tpp_call.capi_val, update_tppcall<CAPI>, NULL, NULL, PyWrapperFlag_CALLBACK),
+    FLSLOT("__call__", tpp_call.cxx_val, update_tppcall<CXX>, NULL, NULL, PyWrapperFlag_CALLBACK),
 
     BINSLOT("__add__", nb_add, slot_nb_add, "+"),                               // [force clang-format to line break]
     RBINSLOT("__radd__", nb_add, slot_nb_add, "+"),                             //
@@ -1900,6 +2035,9 @@ static const slotdef* update_one_slot(BoxedClass* type, const slotdef* p) noexce
     int offset = p->offset;
     void** ptr = slotptr(type, offset);
 
+    if (offset >= offsetof(BoxedClass, tpp_call) && offset < offsetof(BoxedClass, tpp_call) + sizeof(BoxedClass::tpp_call))
+        printf("");
+
     if (ptr == NULL) {
         do {
             ++p;
@@ -1910,6 +2048,15 @@ static const slotdef* update_one_slot(BoxedClass* type, const slotdef* p) noexce
     do {
         assert(p->name_strobj->cls == str_cls);
         descr = typeLookup(type, static_cast<BoxedString*>(p->name_strobj));
+
+        if (p->flags & PyWrapperFlag_CALLBACK) {
+            // We are supposed to iterate over each slotdef; for now just assert that
+            // there was only one:
+            assert((p + 1)->offset > p->offset);
+
+            ((void (*)(BoxedClass*, Box*, const slotdef*))p->function)(type, descr, p);
+            return p + 1;
+        }
 
         if (p->flags & PyWrapperFlag_BOOL) {
             // We are supposed to iterate over each slotdef; for now just assert that
@@ -1989,10 +2136,17 @@ static const slotdef* update_one_slot(BoxedClass* type, const slotdef* p) noexce
         }
     } while ((++p)->offset == offset);
 
-    if (specific && !use_generic)
+    if (specific && !use_generic) {
+        if (offset >= offsetof(BoxedClass, tpp_call)
+            && offset < offsetof(BoxedClass, tpp_call) + sizeof(BoxedClass::tpp_call))
+            assert(*ptr == specific);
         *ptr = specific;
-    else
+    } else {
+        if (offset >= offsetof(BoxedClass, tpp_call)
+            && offset < offsetof(BoxedClass, tpp_call) + sizeof(BoxedClass::tpp_call))
+            assert(*ptr == generic);
         *ptr = generic;
+    }
     return p;
 }
 
@@ -2014,6 +2168,9 @@ bool update_slot(BoxedClass* type, llvm::StringRef attr) noexcept {
     slotdef* p;
     slotdef** pp;
     int offset;
+
+    if (attr == "__call__")
+        printf("");
 
     /* Clear the VALID_VERSION flag of 'type' and all its
        subclasses.  This could possibly be unified with the
@@ -3037,6 +3194,8 @@ static void inherit_slots(PyTypeObject* type, PyTypeObject* base) noexcept {
     COPYSLOT(tp_repr);
     /* tp_hash see tp_richcompare */
     COPYSLOT(tp_call);
+    COPYSLOT(tpp_call.capi_val);
+    COPYSLOT(tpp_call.cxx_val);
     COPYSLOT(tp_str);
     if (type->tp_flags & base->tp_flags & Py_TPFLAGS_HAVE_RICHCOMPARE) {
         if (type->tp_compare == NULL && type->tp_richcompare == NULL && type->tp_hash == NULL) {
@@ -3438,56 +3597,6 @@ extern "C" void PyType_Modified(PyTypeObject* type) noexcept {
     type->tp_flags &= ~Py_TPFLAGS_VALID_VERSION_TAG;
 }
 
-template <ExceptionStyle S>
-static Box* tppProxyToTpCall(Box* self, CallRewriteArgs* rewrite_args, ArgPassSpec argspec, Box* arg1, Box* arg2,
-                             Box* arg3, Box** args,
-                             const std::vector<BoxedString*>* keyword_names) noexcept(S == CAPI) {
-    ParamReceiveSpec paramspec(0, 0, true, true);
-    if (!argspec.has_kwargs && argspec.num_keywords == 0) {
-        paramspec.takes_kwargs = false;
-    }
-
-    auto continuation = [=](CallRewriteArgs* rewrite_args, Box* arg1, Box* arg2, Box* arg3, Box** args) {
-        if (!paramspec.takes_kwargs)
-            arg2 = NULL;
-
-        if (rewrite_args) {
-            if (!paramspec.takes_kwargs)
-                rewrite_args->arg2 = rewrite_args->rewriter->loadConst(0, Location::forArg(2));
-
-            // Currently, guard that the value of tp_call didn't change, and then
-            // emit a call to the current function address.
-            // It might be better to just load the current value of tp_call and call it
-            // (after guarding it's not null), or maybe not.  But the rewriter doesn't currently
-            // support calling a RewriterVar (can only call fixed function addresses).
-            RewriterVar* r_cls = rewrite_args->obj->getAttr(offsetof(Box, cls));
-            r_cls->addAttrGuard(offsetof(BoxedClass, tp_call), (intptr_t)self->cls->tp_call);
-
-            rewrite_args->out_rtn = rewrite_args->rewriter->call(true, (void*)self->cls->tp_call, rewrite_args->obj,
-                                                                 rewrite_args->arg1, rewrite_args->arg2);
-            rewrite_args->out_rtn->setType(RefType::OWNED);
-            if (S == CXX)
-                rewrite_args->rewriter->checkAndThrowCAPIException(rewrite_args->out_rtn);
-            rewrite_args->out_success = true;
-        }
-
-        Box* r = self->cls->tp_call(self, arg1, arg2);
-        if (S == CXX && !r)
-            throwCAPIException();
-        return r;
-    };
-
-    return callCXXFromStyle<S>([&]() {
-        return rearrangeArgumentsAndCall(paramspec, NULL, "", NULL, rewrite_args, argspec, arg1, arg2, arg3, args,
-                                         keyword_names, continuation);
-    });
-}
-
-Box* proxyToTppCall(Box* self, Box* args, Box* kw) noexcept {
-    assert(self->cls->tpp_call.get<CAPI>() != NULL && self->cls->tpp_call.get<CAPI>() != &tppProxyToTpCall<CAPI>);
-    return self->cls->tpp_call.call<CAPI>(self, NULL, ArgPassSpec(0, 0, true, true), args, kw, NULL, NULL, NULL);
-}
-
 extern "C" void PyType_RequestHcAttrs(PyTypeObject* cls, int offset) noexcept {
     assert(cls->attrs_offset == 0);
     assert(cls->tp_dictoffset == 0);
@@ -3573,7 +3682,7 @@ extern "C" int PyType_Ready(PyTypeObject* cls) noexcept {
 
     assert(cls->tp_name);
 
-    if (cls->tp_call && cls->tp_call != proxyToTppCall) {
+    if (cls->tp_call /*&& cls->tp_call != proxyToTppCall*/) {
         cls->tpp_call.capi_val = tppProxyToTpCall<CAPI>;
         cls->tpp_call.cxx_val = tppProxyToTpCall<CXX>;
     }

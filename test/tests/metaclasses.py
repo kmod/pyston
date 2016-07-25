@@ -63,3 +63,26 @@ t = type("test", (), {u"test" : 2, 1000L : 3, 1.0 : 4})
 print t.__dict__[u"test"], t.test
 print t.__dict__[1000L]
 print t.__dict__[1.0]
+
+
+
+for i in range(2):
+    print i
+    class M(type):
+        if i:
+            def __call__(self, *args):
+                print "M.__call__"
+                return type.__call__(self, *args)
+
+    class C(object):
+        __metaclass__ = M
+
+    if i:
+        print C()
+        del M.__call__
+    print C()
+    def newcall(*args):
+        print "newcall"
+        return "aoeu"
+    M.__call__ = newcall
+    print C()

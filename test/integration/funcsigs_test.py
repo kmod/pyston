@@ -47,3 +47,8 @@ test_works("lambda x, *args: 1")
 # print type(type.__dict__['__call__'])
 # print type(type.__call__)
 # print type(all.__call__)
+
+subprocess.check_call([PYTHON_EXE, "-c", """
+import funcsigs
+print funcsigs._WrapperDescriptor, funcsigs._MethodWrapper
+"""])

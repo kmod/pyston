@@ -1056,6 +1056,8 @@ void Assembler::test(Register reg1, Register reg2) {
 
 
 void Assembler::jmp_cond(JumpDestination dest, ConditionCode condition) {
+    assert(condition != UNCONDITIONAL);
+
     bool unlikely = false;
 
     assert(dest.type == JumpDestination::FROM_START);
@@ -1137,6 +1139,8 @@ void Assembler::jmpq(Register dest) {
 
 
 void Assembler::set_cond(Register reg, ConditionCode condition) {
+    assert(condition != UNCONDITIONAL);
+
     int reg_idx = reg.regnum;
 
     assert(0 <= reg_idx && reg_idx < 8);
@@ -1246,23 +1250,42 @@ void Assembler::skipBytes(int num) {
 }
 
 template <int MaxJumpSize>
-ForwardJumpBase<MaxJumpSize>::ForwardJumpBase(Assembler& assembler, ConditionCode condition)
-    : assembler(assembler), condition(condition), jmp_inst(assembler.curInstPointer()) {
-    assembler.jmp_cond(JumpDestination::fromStart(assembler.bytesWritten() + MaxJumpSize), condition);
+UnboundJump<MaxJumpSize>::UnboundJump(Assembler& assembler, ConditionCode condition)
+    : condition(condition), jmp_inst(assembler.curInstPointer()) {
+    if (condition == UNCONDITIONAL) {
+        assembler.jmp(JumpDestination::fromStart(assembler.bytesWritten() + MaxJumpSize));
+    } else {
+        assembler.jmp_cond(JumpDestination::fromStart(assembler.bytesWritten() + MaxJumpSize), condition);
+    }
     jmp_end = assembler.curInstPointer();
+}
+
+template <int MaxJumpSize> void UnboundJump<MaxJumpSize>::bind(uint8_t* to_addr) {
+    int offset = to_addr - jmp_inst;
+
+    // This isn't quite good enough:
+    RELEASE_ASSERT(offset < MaxJumpSize && offset >= -MaxJumpSize, "");
+
+    Assembler a(jmp_inst, jmp_end - jmp_inst);
+    if (condition == UNCONDITIONAL)
+        a.jmp(JumpDestination::fromStart(offset));
+    else
+        a.jmp_cond(JumpDestination::fromStart(offset), condition);
+    while (a.curInstPointer() < jmp_end)
+        a.nop();
+}
+
+template <int MaxJumpSize>
+ForwardJumpBase<MaxJumpSize>::ForwardJumpBase(Assembler& assembler, ConditionCode condition)
+    : assembler(assembler), jump(assembler, condition) {
 }
 
 template <int MaxJumpSize> ForwardJumpBase<MaxJumpSize>::~ForwardJumpBase() {
     uint8_t* new_pos = assembler.curInstPointer();
-    int offset = new_pos - jmp_inst;
-    RELEASE_ASSERT(offset < MaxJumpSize, "");
-    assembler.setCurInstPointer(jmp_inst);
-    assembler.jmp_cond(JumpDestination::fromStart(assembler.bytesWritten() + offset), condition);
-    while (assembler.curInstPointer() < jmp_end)
-        assembler.nop();
-    assembler.setCurInstPointer(new_pos);
+    jump.bind(new_pos);
 }
-template class ForwardJumpBase<128>;
+template class ForwardJumpBase<127>;
 template class ForwardJumpBase<1048576>;
+template class UnboundJump<1048576>;
 }
 }

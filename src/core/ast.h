@@ -754,7 +754,6 @@ public:
 class AST_Num : public AST_expr {
 public:
     enum NumType {
-        // These values must correspond to the values in parse_ast.py
         INT = 0x10,
         FLOAT = 0x20,
         LONG = 0x30,

@@ -257,12 +257,11 @@ public:
         // only valid if type==Register; uses X86 numbering, not dwarf numbering.
         // also valid if type==XMMRegister
         int32_t regnum;
-        // only valid if type==Stack; this is the offset from bottom of the original frame.
-        // ie argument #6 will have a stack_offset of 0, #7 will have a stack offset of 8, etc.
-        // Measured in bytes
+        // only valid if type == Stack; this is a byte offset off RSP.
         int32_t stack_offset;
         // only valid if type == Scratch; offset from the beginning of the scratch area.
         // Measured in bytes
+        // TODO: maybe get rid of this and let the frontend handle it?
         int32_t scratch_offset;
 
         // Only valid if type == StackIndirect:

@@ -48,6 +48,10 @@ enum ConditionCode {
     COND_NOT_LESS = 0xD,    // SF==OF: NL/GE
     COND_NOT_GREATER = 0xE, // ZF=1 || SF!=OF: LE/NG
     COND_GREATER = 0xF,     // ZF=0 && SF==OF: NLE/G
+
+    // Not a real condition code, but lets us use the same api for handling
+    // conditional and unconditional jumps:
+    UNCONDITIONAL = 0xff,
 };
 
 enum class MovType {
@@ -213,22 +217,33 @@ public:
     uint8_t* getStartAddr() { return start_addr; }
 };
 
-// This class helps generating a forward jump with a relative offset.
-// It keeps track of the current assembler offset at construction time and in the destructor patches the
-// generated conditional jump with the correct offset depending on the number of bytes emitted in between.
-template <int MaxJumpSize = 128> class ForwardJumpBase {
+// A jump object that supports delayed binding of the jump target
+template <int MaxJumpSize = 1048576> class UnboundJump {
 private:
-    Assembler& assembler;
     ConditionCode condition;
     uint8_t* jmp_inst;
     uint8_t* jmp_end;
+
+public:
+    UnboundJump(Assembler& assembler, ConditionCode condition);
+
+    void bind(uint8_t* to_addr);
+};
+
+// This class helps generating a forward jump with a relative offset.
+// It keeps track of the current assembler offset at construction time and in the destructor patches the
+// generated conditional jump with the correct offset depending on the number of bytes emitted in between.
+template <int MaxJumpSize = 127> class ForwardJumpBase {
+private:
+    Assembler& assembler;
+    UnboundJump<MaxJumpSize> jump;
 
 public:
     ForwardJumpBase(Assembler& assembler, ConditionCode condition);
     ~ForwardJumpBase();
 };
 
-#define ForwardJump ForwardJumpBase<128>
+#define ForwardJump ForwardJumpBase<127>
 #define LargeForwardJump ForwardJumpBase<1048576>
 
 uint8_t* initializePatchpoint2(uint8_t* start_addr, uint8_t* slowpath_start, uint8_t* end_addr, StackInfo stack_info,

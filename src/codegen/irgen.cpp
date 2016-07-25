@@ -1066,8 +1066,8 @@ static void compileIR(CompiledFunction* cf, EffortLevel effort) {
 }
 
 CompiledFunction* doCompile_(FunctionMetadata* md, SourceInfo* source, ParamNames* param_names,
-                            const OSREntryDescriptor* entry_descriptor, EffortLevel effort,
-                            ExceptionStyle exception_style, FunctionSpecialization* spec, llvm::StringRef nameprefix) {
+                             const OSREntryDescriptor* entry_descriptor, EffortLevel effort,
+                             ExceptionStyle exception_style, FunctionSpecialization* spec, llvm::StringRef nameprefix) {
     RELEASE_ASSERT(0, "not using this anymore");
     Timer _t("in doCompile");
     Timer _t2;

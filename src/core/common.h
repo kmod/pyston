@@ -53,8 +53,8 @@
 #define RELEASE_ASSERT(condition, fmt, ...)                                                                            \
     do {                                                                                                               \
         if (!(condition)) {                                                                                            \
-            ::fprintf(stderr, __FILE__ ":" STRINGIFY(__LINE__) ": %s: Assertion `" #condition "' failed: " fmt "\n",   \
-                      __PRETTY_FUNCTION__, ##__VA_ARGS__);                                                             \
+            ::fprintf(stderr, __FILE__ ":" STRINGIFY(__LINE__) ": %s: Assertion `%s` failed: " fmt "\n",               \
+                      __PRETTY_FUNCTION__, #condition, ##__VA_ARGS__);                                                 \
             ::abort();                                                                                                 \
         }                                                                                                              \
     } while (false)

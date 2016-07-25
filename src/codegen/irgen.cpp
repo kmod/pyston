@@ -1023,9 +1023,10 @@ static std::string getUniqueFunctionName(std::string nameprefix, EffortLevel eff
     return os.str();
 }
 
-CompiledFunction* doCompile(FunctionMetadata* md, SourceInfo* source, ParamNames* param_names,
+CompiledFunction* doCompile_(FunctionMetadata* md, SourceInfo* source, ParamNames* param_names,
                             const OSREntryDescriptor* entry_descriptor, EffortLevel effort,
                             ExceptionStyle exception_style, FunctionSpecialization* spec, llvm::StringRef nameprefix) {
+    RELEASE_ASSERT(0, "not using this anymore");
     Timer _t("in doCompile");
     Timer _t2;
     long irgen_us = 0;

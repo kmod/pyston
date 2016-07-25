@@ -63,6 +63,7 @@ add_library(PYSTON_OBJECTS OBJECT ${OPTIONAL_SRCS}
 		codegen/pypa-parser.cpp
 		codegen/runtime_hooks.cpp
 		codegen/serialize_ast.cpp
+		codegen/sjit.cpp
 		codegen/stackmaps.cpp
 		codegen/type_recording.cpp
 		codegen/unwinding.cpp

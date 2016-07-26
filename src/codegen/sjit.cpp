@@ -36,6 +36,7 @@ private:
     llvm::StringRef nameprefix;
 
     Assembler a;
+    int sp_adjustment;
     int scratch_rsp_offset;
     int vregs_rsp_offset;
 
@@ -50,6 +51,11 @@ private:
         assert(vreg != -1);
         int rsp_offset = vregs_rsp_offset + 8 * vreg;
         return Indirect(RSP, rsp_offset);
+    }
+
+    Indirect scratchSlot(int idx) {
+        assert(idx < (vregs_rsp_offset - scratch_rsp_offset) / 8);
+        return Indirect(RSP, scratch_rsp_offset + 8 * idx);
     }
 
     Location evalExpr(AST_expr* expr, Location dest = Location::any(), bool can_use_others = false) {
@@ -91,12 +97,14 @@ private:
                 // TODO: use definedness analysis here
                 a.mov(slot, RDI);
                 a.test(RDI, RDI);
-                a.sete(RDI);
+                a.setne(RDI);
                 a.mov(Immediate((void*)name->id.c_str()), RSI);
                 a.mov(Immediate(NameError), RDX);
                 a.mov(Immediate(1), RCX);
                 RELEASE_ASSERT(exception_style == CXX, "");
-                a.call(Immediate((void*)assertNameDefined));
+                //a.call(Immediate((void*)assertNameDefined));
+                a.mov(Immediate((void*)assertNameDefined), R11);
+                a.callq(R11);
             }
 
             a.mov(slot, dest_reg);
@@ -115,7 +123,29 @@ private:
             auto r2 = evalExpr(compare->comparators[0], RSI);
             assert(r2 == RSI);
             a.mov(Immediate(compare->ops[0]), RDX);
-            a.call(Immediate((void*)pyston::compare));
+            //a.call(Immediate((void*)pyston::compare));
+            a.mov(Immediate((void*)pyston::compare), R11);
+            a.callq(R11);
+            if (dest.type != Location::AnyReg && dest_reg != RAX) {
+                a.mov(RAX, dest_reg);
+                return dest_reg;
+            }
+            return RAX;
+        }
+
+        if (expr->type == AST_TYPE::BinOp) {
+            auto binop = ast_cast<AST_BinOp>(expr);
+
+            assert(can_use_others);
+
+            auto r1 = evalExpr(binop->left, RDI);
+            assert(r1 == RDI);
+            auto r2 = evalExpr(binop->right, RSI);
+            assert(r2 == RSI);
+            a.mov(Immediate(binop->op_type), RDX);
+            //a.call(Immediate((void*)pyston::binop));
+            a.mov(Immediate((void*)pyston::binop), R11);
+            a.callq(R11);
             if (dest.type != Location::AnyReg && dest_reg != RAX) {
                 a.mov(RAX, dest_reg);
                 return dest_reg;
@@ -152,7 +182,7 @@ public:
         int scratch_size = 128;
         if (vreg_size % 16 == 0)
             scratch_size += 8;
-        int sp_adjustment = scratch_size + vreg_size;
+        sp_adjustment = scratch_size + vreg_size;
         ASSERT(sp_adjustment % 16 == 8, "");
         a.sub(Immediate(sp_adjustment), RSP);
 
@@ -162,6 +192,8 @@ public:
         assert(!param_names->arg_names.size());
         assert(!param_names->vararg_name);
         assert(!param_names->kwarg_name);
+
+        a.trap();
     }
 
     CompiledFunction* run() {
@@ -186,11 +218,32 @@ public:
                     while (jump_list.size() <= target_idx)
                         jump_list.emplace_back();
                     jump_list[target_idx].emplace_back(new Jump(a, UNCONDITIONAL));
+                } else if (stmt->type == AST_TYPE::Return) {
+                    auto ret = ast_cast<AST_Return>(stmt);
+
+                    if (ret->value) {
+                        auto val = evalExpr(ret->value, RAX);
+                        a.mov(val.asRegister(), scratchSlot(0));
+                    }
+
+                    // TODO Call deinitframe
+
+                    if (ret->value)
+                        a.mov(scratchSlot(0), RAX);
+
+                    a.add(Immediate(sp_adjustment), RSP);
+                    a.pop(RBX);
+                    a.pop(R12);
+                    a.pop(R13);
+                    a.pop(R14);
+                    a.pop(R15);
+                    a.pop(RBP);
+                    a.retq();
                 } else {
                     printf("Failed to sjit:\n");
                     print_ast(stmt);
                     printf("\n");
-                    ASSERT(0, "%d", stmt->type);
+                    ASSERT(0, "unknown stmt type %d", stmt->type);
                 }
             }
         }
@@ -200,7 +253,9 @@ public:
             RELEASE_ASSERT(jump_list[idx].empty(), "");
         }
 
-        RELEASE_ASSERT(0, "");
+        printf("disas %p,%p\n", a.startAddr(), a.curInstPointer());
+
+        return new CompiledFunction(md, spec, a.startAddr(), effort, exception_style, entry_descriptor);
     }
 };
 

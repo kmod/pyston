@@ -67,31 +67,43 @@ private:
         return Indirect(RSP, scratch_rsp_offset + 8 * idx);
     }
 
-    Location evalExpr(AST_expr* expr, Location dest = Location::any(), bool can_use_others = false) {
-        assert(dest.type == Location::Register || dest.type == Location::AnyReg);
-        Register dest_reg = RAX;
-        if (dest.type == Location::Register)
-            dest_reg = dest.asRegister();
+    struct SimpleLocation {
+        union {
+            Indirect mem;
+            uint64_t constant;
+        };
 
-        if (expr->type == AST_TYPE::MakeFunction || expr->type == AST_TYPE::MakeClass) {
-            if (VERBOSITY())
-                printf("Aborting sjit; unhandled expr type %d\n", expr->type);
-            return Location();
+        bool is_constant;
+
+        bool operator==(const SimpleLocation& rhs);
+        bool operator!=(const SimpleLocation& rhs) { return !(*this == rhs); }
+
+        bool operator==(const Indirect& rhs) {
+            return is_constant && mem == rhs;
         }
+        bool operator!=(const Indirect& rhs) { return !(*this == rhs); }
 
+        SimpleLocation(uint64_t data) : constant(data), is_constant(true) {}
+        SimpleLocation(Indirect mem) : mem(mem), is_constant(false) {}
+    };
+
+    void mov(const SimpleLocation& l, Register reg) {
+        if (l.is_constant) {
+            a.mov(Immediate(l.constant), reg);
+        } else {
+            a.mov(l.mem, reg);
+        }
+    }
+
+    // Returns a borrowed ref
+    SimpleLocation evalSimpleExpr(AST_expr* expr) {
         if (expr->type == AST_TYPE::Num) {
             auto num = ast_cast<AST_Num>(expr);
             RELEASE_ASSERT(num->num_type == AST_Num::INT, "");
 
             Box* b = source->parent_module->getIntConstant(num->n_int);
-            a.mov(Immediate(b), dest_reg);
-#ifdef Py_REF_DEBUG
-            assert(dest_reg != R12);
-            a.mov(Immediate(&_Py_RefTotal), R12);
-            a.incl(Indirect(R12, 0));
-#endif
-            a.incl(Indirect(dest_reg, offsetof(Box, ob_refcnt)));
-            return dest_reg;
+
+            return (uint64_t)b;
         }
 
         if (expr->type == AST_TYPE::Name) {
@@ -101,37 +113,23 @@ private:
 
             auto slot = vregStackSlot(name);
 
-            bool definitely_defined = false;
-
-            if (!source->cfg->getVRegInfo().isUserVisibleVReg(name->vreg))
-                definitely_defined = true;
-
-            if (!definitely_defined) {
-                assert(can_use_others);
-
-                // TODO: use definedness analysis here
-                a.mov(slot, RDI);
-                a.test(RDI, RDI);
-                a.setne(RDI);
-                a.mov(Immediate((void*)name->id.c_str()), RSI);
-                a.mov(Immediate(NameError), RDX);
-                a.mov(Immediate(1), RCX);
-                RELEASE_ASSERT(exception_style == CXX, "");
-                // a.call(Immediate((void*)assertNameDefined));
-                a.mov(Immediate((void*)assertNameDefined), R11);
-                a.callq(R11);
-            }
-
-            a.mov(slot, dest_reg);
-#ifdef Py_REF_DEBUG
-            assert(dest_reg != R12);
-            a.mov(Immediate(&_Py_RefTotal), R12);
-            a.incl(Indirect(R12, 0));
-#endif
-            a.incl(Indirect(dest_reg, offsetof(Box, ob_refcnt)));
-            return dest_reg;
+            RELEASE_ASSERT(!source->cfg->getVRegInfo().isUserVisibleVReg(name->vreg), "");
+            return slot;
         }
 
+        RELEASE_ASSERT(0, "unhandled simple expr type %d\n", expr->type);
+    }
+
+    // Returns an owned ref
+    bool evalExprInto(AST_expr* expr, Indirect dest) {
+        if (expr->type == AST_TYPE::MakeFunction || expr->type == AST_TYPE::MakeClass) {
+            if (VERBOSITY())
+                printf("Aborting sjit; unhandled expr type %d\n", expr->type);
+
+            return false;
+        }
+
+#if 0
         if (expr->type == AST_TYPE::Compare) {
             auto compare = ast_cast<AST_Compare>(expr);
             assert(compare->ops.size() == 1);
@@ -155,44 +153,75 @@ private:
             }
             return RAX;
         }
+#endif
 
         if (expr->type == AST_TYPE::BinOp) {
             auto binop = ast_cast<AST_BinOp>(expr);
 
-            assert(can_use_others);
+            auto l1 = evalSimpleExpr(binop->left);
+            auto l2 = evalSimpleExpr(binop->right);
+            assert(l1 != dest);
+            assert(l2 != dest);
 
-            auto r1 = evalExpr(binop->left, RDI);
-            assert(r1 == RDI);
-            auto r2 = evalExpr(binop->right, RSI);
-            assert(r2 == RSI);
-            a.mov(RDI, scratchSlot(0));
-            a.mov(RSI, scratchSlot(1));
+            mov(l1, RDI);
+            mov(l2, RSI);
             a.mov(Immediate(binop->op_type), RDX);
             // a.call(Immediate((void*)pyston::binop));
             a.mov(Immediate((void*)pyston::binop), R11);
             a.callq(R11);
 
-            a.mov(RAX, scratchSlot(2));
+            a.mov(RAX, dest);
 
-            a.mov(scratchSlot(0), RDI);
-#ifndef Py_REF_DEBUG
-            static_assert(0, "want the faster version here");
-#endif
-            a.mov(Immediate((void*)_decref), R11);
-            a.callq(R11);
-
-            a.mov(scratchSlot(1), RDI);
-#ifndef Py_REF_DEBUG
-            static_assert(0, "want the faster version here");
-#endif
-            a.mov(Immediate((void*)_decref), R11);
-            a.callq(R11);
-
-            a.mov(scratchSlot(2), dest_reg);
-            return dest_reg;
+            return true;
         }
 
-        RELEASE_ASSERT(0, "unhandled expr type: %d", expr->type);
+        if (expr->type == AST_TYPE::Name) {
+            auto name = ast_cast<AST_Name>(expr);
+
+            RELEASE_ASSERT(name->lookup_type == ScopeInfo::VarScopeType::FAST, "");
+
+            auto slot = vregStackSlot(name);
+
+            // TODO: use definedness analysis here
+            bool definitely_defined = false;
+            if (!source->cfg->getVRegInfo().isUserVisibleVReg(name->vreg)) {
+                assert(0 && "why is this non-simple?");
+                definitely_defined = true;
+            }
+
+            if (!definitely_defined) {
+                a.mov(slot, RDI);
+                a.test(RDI, RDI);
+                a.setne(RDI);
+                a.mov(Immediate((void*)name->id.c_str()), RSI);
+                a.mov(Immediate(NameError), RDX);
+                a.mov(Immediate(1), RCX);
+                RELEASE_ASSERT(exception_style == CXX, "");
+                // a.call(Immediate((void*)assertNameDefined));
+                a.mov(Immediate((void*)assertNameDefined), R11);
+                a.callq(R11);
+            }
+
+            a.mov(slot, R11);
+#ifdef Py_REF_DEBUG
+            a.mov(Immediate(&_Py_RefTotal), R12);
+            a.incl(Indirect(R12, 0));
+#endif
+            a.incl(Indirect(R11, offsetof(Box, ob_refcnt)));
+            a.mov(R11, dest);
+            return true;
+        }
+
+        auto loc = evalSimpleExpr(expr);
+        assert(loc != dest);
+        mov(loc, R11);
+#ifdef Py_REF_DEBUG
+        a.mov(Immediate(&_Py_RefTotal), R12);
+        a.incl(Indirect(R12, 0));
+#endif
+        a.incl(Indirect(R11, offsetof(Box, ob_refcnt)));
+        a.mov(R11, dest);
+        return true;
     }
 
 public:
@@ -235,6 +264,14 @@ public:
         assert(!source->is_generator);
 
         a.clear_reg(RAX);
+
+        // clear user visible vregs
+        // TODO there are faster ways to do this
+        int num_user_visible = source->cfg->getVRegInfo().getNumOfUserVisibleVRegs();
+        for (int i = 0; i < num_user_visible; i++) {
+            a.mov(RAX, vregStackSlot(i));
+        }
+
         a.mov(RAX, Indirect(RSP, frameinfo_rsp_offset + offsetof(FrameInfo, exc.type)));
 
         assert(!source->getScopeInfo()->usesNameLookup());
@@ -277,18 +314,43 @@ public:
             for (auto stmt : block->body) {
                 if (stmt->type == AST_TYPE::Assign) {
                     auto asgn = ast_cast<AST_Assign>(stmt);
-                    auto val = evalExpr(asgn->value, Location::any(), true);
-                    if (val.type == Location::Uninitialized)
-                        return NULL;
 
                     assert(asgn->targets.size() == 1);
                     assert(asgn->targets[0]->type == AST_TYPE::Name);
                     auto name = ast_cast<AST_Name>(asgn->targets[0]);
                     RELEASE_ASSERT(name->lookup_type == ScopeInfo::VarScopeType::FAST, "");
 
-                    assert(val.type == Location::Register);
-                    // TODO: decref the previous one
-                    a.mov(val.asRegister(), vregStackSlot(name));
+                    int vreg = name->vreg;
+                    assert(vreg >= 0);
+                    if (source->cfg->getVRegInfo().isUserVisibleVReg(vreg)) {
+                        auto dest = vregStackSlot(name);
+
+                        SimpleLocation l = evalSimpleExpr(asgn->value);
+                        assert(l != dest);
+
+                        mov(l, R11);
+#ifdef Py_REF_DEBUG
+                        a.mov(Immediate(&_Py_RefTotal), R12);
+                        a.incl(Indirect(R12, 0));
+#endif
+                        a.incl(Indirect(R11, offsetof(Box, ob_refcnt)));
+
+                        a.mov(dest, RDI);
+                        a.mov(R11, dest);
+
+                        // TODO: use definedness analysis here
+#ifndef Py_REF_DEBUG
+                        static_assert(0, "want the faster version here");
+#endif
+                        a.mov(Immediate((void*)_xdecref), R11);
+                        a.callq(R11);
+                    } else {
+                        auto dest = vregStackSlot(name);
+
+                        bool ok = evalExprInto(asgn->value, dest);
+                        if (!ok)
+                            return NULL;
+                    }
                 } else if (stmt->type == AST_TYPE::Jump) {
                     auto jmp = ast_cast<AST_Jump>(stmt);
                     auto target_idx = jmp->target->idx;
@@ -298,9 +360,17 @@ public:
                 } else if (stmt->type == AST_TYPE::Return) {
                     auto ret = ast_cast<AST_Return>(stmt);
 
+                    auto scratch = scratchSlot(0);
                     if (ret->value) {
-                        auto val = evalExpr(ret->value, RAX);
-                        a.mov(val.asRegister(), scratchSlot(0));
+                        auto l = evalSimpleExpr(ret->value);
+                        mov(l, R11);
+#ifdef Py_REF_DEBUG
+                        a.mov(Immediate(&_Py_RefTotal), R12);
+                        a.incl(Indirect(R12, 0));
+#endif
+                        a.incl(Indirect(R11, offsetof(Box, ob_refcnt)));
+
+                        a.mov(R11, scratch);
                     }
 
                     a.lea(Indirect(RSP, frameinfo_rsp_offset), RDI);
@@ -308,7 +378,7 @@ public:
                     a.callq(R11);
 
                     if (ret->value)
-                        a.mov(scratchSlot(0), RAX);
+                        a.mov(scratch, RAX);
 
                     a.add(Immediate(sp_adjustment), RSP);
                     a.pop(RBX);

@@ -135,6 +135,9 @@ public:
     const int64_t offset;
 
     Indirect(const Register base, int64_t offset) : base(base), offset(offset) {}
+
+    bool operator==(const Indirect& rhs) { return base == rhs.base && offset == rhs.offset; }
+    bool operator!=(const Indirect& rhs) { return !(*this == rhs); }
 };
 
 struct XMMRegister {

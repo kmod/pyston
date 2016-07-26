@@ -1072,7 +1072,8 @@ struct FrameInfo {
     BORROWED(BoxedClosure*) passed_closure;
 
     Box** vregs;
-    int num_vregs;
+    // TODO: switch back to an int?
+    int64_t num_vregs;
 
     AST_stmt* stmt; // current statement
     // This is either a module or a dict

@@ -511,7 +511,7 @@ void ASTInterpreter::doStore(AST_Name* node, STOLEN(Value) value) {
             ASTInterpreterJitInterface::setLocalClosureHelper(this, node->vreg, name, value.o);
         } else {
             assert(getVRegInfo().getVReg(node->id) == node->vreg);
-            frame_info.num_vregs = std::max(frame_info.num_vregs, node->vreg + 1);
+            frame_info.num_vregs = std::max(frame_info.num_vregs, (long)node->vreg + 1);
             Box* prev = vregs[node->vreg];
             vregs[node->vreg] = value.o;
             Py_XDECREF(prev);
@@ -1406,7 +1406,7 @@ Value ASTInterpreter::visit_delete(AST_Delete* node) {
                         }
                     }
 
-                    frame_info.num_vregs = std::max(frame_info.num_vregs, target->vreg + 1);
+                    frame_info.num_vregs = std::max(frame_info.num_vregs, (long)target->vreg + 1);
                     Py_DECREF(vregs[target->vreg]);
                     vregs[target->vreg] = NULL;
                 }
@@ -1743,7 +1743,7 @@ Value ASTInterpreter::visit_name(AST_Name* node) {
 
             assert(node->vreg >= 0);
             assert(getVRegInfo().getVReg(node->id) == node->vreg);
-            frame_info.num_vregs = std::max(frame_info.num_vregs, node->vreg + 1);
+            frame_info.num_vregs = std::max(frame_info.num_vregs, (long)node->vreg + 1);
             Box* val = vregs[node->vreg];
 
             if (val) {
@@ -1940,7 +1940,7 @@ void ASTInterpreterJitInterface::setExcInfoHelper(void* _interpreter, STOLEN(Box
 void ASTInterpreterJitInterface::setLocalClosureHelper(void* _interpreter, long vreg, InternedString id, Box* v) {
     ASTInterpreter* interpreter = (ASTInterpreter*)_interpreter;
 
-    interpreter->frame_info.num_vregs = std::max(interpreter->frame_info.num_vregs, (int)vreg + 1);
+    interpreter->frame_info.num_vregs = std::max(interpreter->frame_info.num_vregs, vreg + 1);
     assert(interpreter->getVRegInfo().getVReg(id) == vreg);
     Box* prev = interpreter->vregs[vreg];
     interpreter->vregs[vreg] = v;

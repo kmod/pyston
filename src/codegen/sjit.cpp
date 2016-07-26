@@ -24,6 +24,13 @@ using namespace pyston::assembler;
 
 namespace pyston {
 
+static void _decref(Box* b) {
+    Py_DECREF(b);
+}
+static void _xdecref(Box* b) {
+    Py_XDECREF(b);
+}
+
 class SJit {
 private:
     FunctionMetadata* md;
@@ -37,8 +44,8 @@ private:
 
     Assembler a;
     int sp_adjustment;
-    int scratch_rsp_offset;
-    int vregs_rsp_offset;
+    int scratch_size;
+    int scratch_rsp_offset, vregs_rsp_offset, frameinfo_rsp_offset;
 
     typedef UnboundJump<1048576> Jump;
     std::deque<llvm::SmallVector<std::unique_ptr<Jump>, 2>> jump_list;
@@ -47,14 +54,16 @@ private:
         assert(name->lookup_type == ScopeInfo::VarScopeType::FAST
                || name->lookup_type == ScopeInfo::VarScopeType::CLOSURE);
 
-        int vreg = name->vreg;
+        return vregStackSlot(name->vreg);
+    }
+    Indirect vregStackSlot(int vreg) {
         assert(vreg != -1);
         int rsp_offset = vregs_rsp_offset + 8 * vreg;
         return Indirect(RSP, rsp_offset);
     }
 
     Indirect scratchSlot(int idx) {
-        assert(idx < (vregs_rsp_offset - scratch_rsp_offset) / 8);
+        assert(idx < scratch_size / 8);
         return Indirect(RSP, scratch_rsp_offset + 8 * idx);
     }
 
@@ -76,6 +85,12 @@ private:
 
             Box* b = source->parent_module->getIntConstant(num->n_int);
             a.mov(Immediate(b), dest_reg);
+#ifdef Py_REF_DEBUG
+            assert(dest_reg != R12);
+            a.mov(Immediate(&_Py_RefTotal), R12);
+            a.incl(Indirect(R12, 0));
+#endif
+            a.incl(Indirect(dest_reg, offsetof(Box, ob_refcnt)));
             return dest_reg;
         }
 
@@ -102,12 +117,18 @@ private:
                 a.mov(Immediate(NameError), RDX);
                 a.mov(Immediate(1), RCX);
                 RELEASE_ASSERT(exception_style == CXX, "");
-                //a.call(Immediate((void*)assertNameDefined));
+                // a.call(Immediate((void*)assertNameDefined));
                 a.mov(Immediate((void*)assertNameDefined), R11);
                 a.callq(R11);
             }
 
             a.mov(slot, dest_reg);
+#ifdef Py_REF_DEBUG
+            assert(dest_reg != R12);
+            a.mov(Immediate(&_Py_RefTotal), R12);
+            a.incl(Indirect(R12, 0));
+#endif
+            a.incl(Indirect(dest_reg, offsetof(Box, ob_refcnt)));
             return dest_reg;
         }
 
@@ -118,12 +139,14 @@ private:
 
             assert(can_use_others);
 
+            RELEASE_ASSERT(0, "add refcounting");
+
             auto r1 = evalExpr(compare->left, RDI);
             assert(r1 == RDI);
             auto r2 = evalExpr(compare->comparators[0], RSI);
             assert(r2 == RSI);
             a.mov(Immediate(compare->ops[0]), RDX);
-            //a.call(Immediate((void*)pyston::compare));
+            // a.call(Immediate((void*)pyston::compare));
             a.mov(Immediate((void*)pyston::compare), R11);
             a.callq(R11);
             if (dest.type != Location::AnyReg && dest_reg != RAX) {
@@ -142,15 +165,31 @@ private:
             assert(r1 == RDI);
             auto r2 = evalExpr(binop->right, RSI);
             assert(r2 == RSI);
+            a.mov(RDI, scratchSlot(0));
+            a.mov(RSI, scratchSlot(1));
             a.mov(Immediate(binop->op_type), RDX);
-            //a.call(Immediate((void*)pyston::binop));
+            // a.call(Immediate((void*)pyston::binop));
             a.mov(Immediate((void*)pyston::binop), R11);
             a.callq(R11);
-            if (dest.type != Location::AnyReg && dest_reg != RAX) {
-                a.mov(RAX, dest_reg);
-                return dest_reg;
-            }
-            return RAX;
+
+            a.mov(RAX, scratchSlot(2));
+
+            a.mov(scratchSlot(0), RDI);
+#ifndef Py_REF_DEBUG
+            static_assert(0, "want the faster version here");
+#endif
+            a.mov(Immediate((void*)_decref), R11);
+            a.callq(R11);
+
+            a.mov(scratchSlot(1), RDI);
+#ifndef Py_REF_DEBUG
+            static_assert(0, "want the faster version here");
+#endif
+            a.mov(Immediate((void*)_decref), R11);
+            a.callq(R11);
+
+            a.mov(scratchSlot(2), dest_reg);
+            return dest_reg;
         }
 
         RELEASE_ASSERT(0, "unhandled expr type: %d", expr->type);
@@ -179,21 +218,58 @@ public:
         a.push(RBX);
 
         int vreg_size = 8 * source->cfg->getVRegInfo().getTotalNumOfVRegs();
-        int scratch_size = 128;
+        scratch_size = 32;
         if (vreg_size % 16 == 0)
             scratch_size += 8;
-        sp_adjustment = scratch_size + vreg_size;
+        sp_adjustment = scratch_size + vreg_size + sizeof(FrameInfo);
         ASSERT(sp_adjustment % 16 == 8, "");
         a.sub(Immediate(sp_adjustment), RSP);
 
         scratch_rsp_offset = 0;
         vregs_rsp_offset = scratch_size;
+        frameinfo_rsp_offset = vregs_rsp_offset + vreg_size;
 
         assert(!param_names->arg_names.size());
         assert(!param_names->vararg_name);
         assert(!param_names->kwarg_name);
+        assert(!source->is_generator);
 
-        a.trap();
+        a.clear_reg(RAX);
+        a.mov(RAX, Indirect(RSP, frameinfo_rsp_offset + offsetof(FrameInfo, exc.type)));
+
+        assert(!source->getScopeInfo()->usesNameLookup());
+        // otherwise need to set boxed_locals=new BoxedDict
+        a.mov(RAX, Indirect(RSP, frameinfo_rsp_offset + offsetof(FrameInfo, boxedLocals)));
+
+        a.mov(RAX, Indirect(RSP, frameinfo_rsp_offset + offsetof(FrameInfo, frame_obj)));
+
+        assert(!source->getScopeInfo()->takesClosure());
+        a.mov(RAX, Indirect(RSP, frameinfo_rsp_offset + offsetof(FrameInfo, passed_closure)));
+        // a.trap();
+        assert(!source->getScopeInfo()->createsClosure());
+
+        assert(source->scoping->areGlobalsFromModule());
+        a.mov(Immediate(source->parent_module), R11);
+#ifdef Py_REF_DEBUG
+        a.mov(Immediate(&_Py_RefTotal), R12);
+        a.incl(Indirect(R12, 0));
+#endif
+        a.incl(Indirect(R11, offsetof(Box, ob_refcnt)));
+        a.mov(R11, Indirect(RSP, frameinfo_rsp_offset + offsetof(FrameInfo, globals)));
+
+        a.lea(vregStackSlot(0), R11);
+        a.mov(R11, Indirect(RSP, frameinfo_rsp_offset + offsetof(FrameInfo, vregs)));
+        // a.movl(Immediate(source->cfg->getVRegInfo().getTotalNumOfVRegs()), Indirect(RSP, frameinfo_rsp_offset +
+        // offsetof(FrameInfo, num_vregs)));
+        a.movq(Immediate(source->cfg->getVRegInfo().getTotalNumOfVRegs()),
+               Indirect(RSP, frameinfo_rsp_offset + offsetof(FrameInfo, num_vregs)));
+
+        a.mov(Immediate(md), R11);
+        a.mov(R11, Indirect(RSP, frameinfo_rsp_offset + offsetof(FrameInfo, md)));
+
+        a.lea(Indirect(RSP, frameinfo_rsp_offset), RDI);
+        a.mov(Immediate((void*)initFrame), R11);
+        a.callq(R11);
     }
 
     CompiledFunction* run() {
@@ -211,6 +287,7 @@ public:
                     RELEASE_ASSERT(name->lookup_type == ScopeInfo::VarScopeType::FAST, "");
 
                     assert(val.type == Location::Register);
+                    // TODO: decref the previous one
                     a.mov(val.asRegister(), vregStackSlot(name));
                 } else if (stmt->type == AST_TYPE::Jump) {
                     auto jmp = ast_cast<AST_Jump>(stmt);
@@ -226,7 +303,9 @@ public:
                         a.mov(val.asRegister(), scratchSlot(0));
                     }
 
-                    // TODO Call deinitframe
+                    a.lea(Indirect(RSP, frameinfo_rsp_offset), RDI);
+                    a.mov(Immediate((void*)deinitFrame), R11);
+                    a.callq(R11);
 
                     if (ret->value)
                         a.mov(scratchSlot(0), RAX);

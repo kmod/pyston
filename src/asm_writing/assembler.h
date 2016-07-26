@@ -120,9 +120,12 @@ public:
 
     // emits a movabs if the immediate is a 64bit value or force_64bit_load = true otherwise it emits a 32bit mov
     void mov(Immediate imm, Register dest, bool force_64bit_load = false);
-    // not sure if we should use the 'q' suffix here, but this is the most ambiguous one;
+
     // this does a 64-bit store of a 32-bit value.
     void movq(Immediate imm, Indirect dest);
+    //// does a 32-bit store of a 32-bit value
+    // void movl(Immediate imm, Indirect dest);
+
     void mov(Register src, Register dest);
     void mov(Register src, Indirect dest);
     void movsd(XMMRegister src, XMMRegister dest);

@@ -74,6 +74,7 @@ private:
         };
 
         bool is_constant;
+        bool zero_at_end = false;
 
         bool operator==(const SimpleLocation& rhs);
         bool operator!=(const SimpleLocation& rhs) { return !(*this == rhs); }
@@ -114,7 +115,11 @@ private:
             auto slot = vregStackSlot(name);
 
             RELEASE_ASSERT(!source->cfg->getVRegInfo().isUserVisibleVReg(name->vreg), "");
-            return slot;
+
+            auto r = SimpleLocation(slot);
+            if (name->is_kill)
+                r.zero_at_end = true;
+            return r;
         }
 
         RELEASE_ASSERT(0, "unhandled simple expr type %d\n", expr->type);
@@ -160,6 +165,7 @@ private:
 
             auto l1 = evalSimpleExpr(binop->left);
             auto l2 = evalSimpleExpr(binop->right);
+            assert(!l2.zero_at_end);
             assert(l1 != dest);
             assert(l2 != dest);
 
@@ -171,6 +177,30 @@ private:
             a.callq(R11);
 
             a.mov(RAX, dest);
+
+            if (l1.zero_at_end) {
+                mov(l1, RDI);
+#ifndef Py_REF_DEBUG
+                static_assert(0, "want the faster version here");
+#endif
+                a.mov(Immediate((void*)_decref), R11);
+                a.callq(R11);
+                a.clear_reg(RAX);
+                assert(!l1.is_constant);
+                a.mov(RAX, l1.mem);
+            }
+
+            if (l2.zero_at_end) {
+                mov(l2, RDI);
+#ifndef Py_REF_DEBUG
+                static_assert(0, "want the faster version here");
+#endif
+                a.mov(Immediate((void*)_decref), R11);
+                a.callq(R11);
+                a.clear_reg(RAX);
+                assert(!l2.is_constant);
+                a.mov(RAX, l2.mem);
+            }
 
             return true;
         }
@@ -188,6 +218,8 @@ private:
                 assert(0 && "why is this non-simple?");
                 definitely_defined = true;
             }
+
+            assert(!name->is_kill);
 
             if (!definitely_defined) {
                 a.mov(slot, RDI);
@@ -213,6 +245,7 @@ private:
         }
 
         auto loc = evalSimpleExpr(expr);
+        assert(!loc.zero_at_end);
         assert(loc != dest);
         mov(loc, R11);
 #ifdef Py_REF_DEBUG
@@ -282,7 +315,6 @@ public:
 
         assert(!source->getScopeInfo()->takesClosure());
         a.mov(RAX, Indirect(RSP, frameinfo_rsp_offset + offsetof(FrameInfo, passed_closure)));
-        // a.trap();
         assert(!source->getScopeInfo()->createsClosure());
 
         assert(source->scoping->areGlobalsFromModule());
@@ -307,10 +339,16 @@ public:
         a.lea(Indirect(RSP, frameinfo_rsp_offset), RDI);
         a.mov(Immediate((void*)initFrame), R11);
         a.callq(R11);
+        a.trap();
     }
 
     CompiledFunction* run() {
+        std::vector<uint8_t*> block_starts;
         for (auto block : source->cfg->blocks) {
+            while (block_starts.size() < block->idx)
+                block_starts.emplace_back();
+            block_starts.push_back(a.curInstPointer());
+
             for (auto stmt : block->body) {
                 if (stmt->type == AST_TYPE::Assign) {
                     auto asgn = ast_cast<AST_Assign>(stmt);
@@ -344,6 +382,18 @@ public:
 #endif
                         a.mov(Immediate((void*)_xdecref), R11);
                         a.callq(R11);
+
+                        if (l.zero_at_end) {
+                            mov(l, RDI);
+#ifndef Py_REF_DEBUG
+                            static_assert(0, "want the faster version here");
+#endif
+                            a.mov(Immediate((void*)_decref), R11);
+                            a.callq(R11);
+                            a.clear_reg(RAX);
+                            assert(!l.is_constant);
+                            a.mov(RAX, l.mem);
+                        }
                     } else {
                         auto dest = vregStackSlot(name);
 
@@ -357,28 +407,70 @@ public:
                     while (jump_list.size() <= target_idx)
                         jump_list.emplace_back();
                     jump_list[target_idx].emplace_back(new Jump(a, UNCONDITIONAL));
+                } else if (stmt->type == AST_TYPE::Branch) {
+                    auto br = ast_cast<AST_Branch>(stmt);
+                    auto true_idx = br->iftrue->idx;
+                    auto false_idx = br->iffalse->idx;
+                    while (jump_list.size() <= true_idx)
+                        jump_list.emplace_back();
+                    while (jump_list.size() <= false_idx)
+                        jump_list.emplace_back();
+
+                    assert(br->test->type == AST_TYPE::LangPrimitive);
+                    auto nonzero = ast_cast<AST_LangPrimitive>(br->test);
+                    assert(nonzero->opcode == AST_LangPrimitive::NONZERO);
+                    auto nonzero_arg = evalSimpleExpr(nonzero->args[0]);
+
+                    mov(nonzero_arg, RDI);
+                    a.mov(Immediate((void*)pyston::nonzero), R11);
+                    a.callq(R11);
+
+                    if (nonzero_arg.zero_at_end) {
+                        auto scratch = scratchSlot(0);
+                        a.mov(RAX, scratch);
+
+                        mov(nonzero_arg, RDI);
+#ifndef Py_REF_DEBUG
+                        static_assert(0, "want the faster version here");
+#endif
+                        a.mov(Immediate((void*)_decref), R11);
+                        a.callq(R11);
+                        a.clear_reg(RAX);
+                        assert(!nonzero_arg.is_constant);
+                        a.mov(RAX, nonzero_arg.mem);
+
+                        a.mov(scratch, RAX);
+                    }
+
+                    a.testal();
+                    jump_list[true_idx].emplace_back(new Jump(a, COND_NOT_EQUAL));
+                    jump_list[false_idx].emplace_back(new Jump(a, UNCONDITIONAL));
                 } else if (stmt->type == AST_TYPE::Return) {
                     auto ret = ast_cast<AST_Return>(stmt);
 
                     auto scratch = scratchSlot(0);
                     if (ret->value) {
                         auto l = evalSimpleExpr(ret->value);
+                        assert(!l.zero_at_end);
                         mov(l, R11);
-#ifdef Py_REF_DEBUG
-                        a.mov(Immediate(&_Py_RefTotal), R12);
-                        a.incl(Indirect(R12, 0));
-#endif
-                        a.incl(Indirect(R11, offsetof(Box, ob_refcnt)));
-
-                        a.mov(R11, scratch);
+                    } else {
+                        printf("%p\n", Py_None);
+                        a.mov(Immediate((void*)Py_None), R11);
                     }
+
+#ifdef Py_REF_DEBUG
+                    a.mov(Immediate(&_Py_RefTotal), R12);
+                    a.incl(Indirect(R12, 0));
+#endif
+                    a.incl(Indirect(R11, offsetof(Box, ob_refcnt)));
+
+                    a.mov(R11, scratch);
 
                     a.lea(Indirect(RSP, frameinfo_rsp_offset), RDI);
                     a.mov(Immediate((void*)deinitFrame), R11);
                     a.callq(R11);
 
-                    if (ret->value)
-                        a.mov(scratch, RAX);
+                    a.mov(scratch, RAX);
 
                     a.add(Immediate(sp_adjustment), RSP);
                     a.pop(RBX);
@@ -399,7 +491,9 @@ public:
 
         RELEASE_ASSERT(!a.hasFailed(), "");
         for (int idx = 0; idx < jump_list.size(); idx++) {
-            RELEASE_ASSERT(jump_list[idx].empty(), "");
+            for (auto&& j : jump_list[idx]) {
+                j->bind(block_starts[idx]);
+            }
         }
 
         printf("disas %p,%p\n", a.startAddr(), a.curInstPointer());

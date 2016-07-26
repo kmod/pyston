@@ -852,6 +852,11 @@ void Assembler::call(Immediate imm) {
     emitInt(imm.val, 4);
 }
 
+void Assembler::testal() {
+    emitByte(0x84);
+    emitByte(0xc0);
+}
+
 void Assembler::callq(Register r) {
     assert(r == R11 && "untested");
 

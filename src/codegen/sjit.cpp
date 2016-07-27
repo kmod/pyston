@@ -319,6 +319,30 @@ public:
             a.mov(RAX, vregStackSlot(i));
         }
 
+        for (int i = 0; i < param_names->arg_names.size(); i++) {
+            auto name = param_names->arg_names[i];
+            RELEASE_ASSERT(name->lookup_type == ScopeInfo::VarScopeType::FAST, "");
+            RELEASE_ASSERT(name->id.c_str()[0] != '.', "");
+
+            Register reg = RAX;
+            if (i == 0) {
+                reg = RDI;
+            } else if (i == 1) {
+                reg = RSI;
+            } else if (i == 2) {
+                reg = RDX;
+            } else {
+                RELEASE_ASSERT("", ">3 args not implemented yet");
+            }
+
+#ifdef Py_REF_DEBUG
+            a.mov(Immediate(&_Py_RefTotal), R12);
+            a.incl(Indirect(R12, 0));
+#endif
+            a.incl(Indirect(reg, offsetof(Box, ob_refcnt)));
+            a.mov(reg, vregStackSlot(name));
+        }
+
         a.mov(RAX, Indirect(RSP, frameinfo_rsp_offset + offsetof(FrameInfo, exc.type)));
 
         assert(!source->getScopeInfo()->usesNameLookup());
@@ -353,7 +377,7 @@ public:
         a.lea(Indirect(RSP, frameinfo_rsp_offset), RDI);
         a.mov(Immediate((void*)initFrame), R11);
         a.callq(R11);
-        a.trap();
+        //a.trap();
     }
 
     CompiledFunction* run() {
@@ -361,30 +385,6 @@ public:
         assert(!param_names->kwarg_name);
         assert(!source->is_generator);
         assert(!source->getScopeInfo()->takesClosure());
-
-        for (int i = 0; i < param_names->arg_names.size(); i++) {
-            auto name = param_names->arg_names[i];
-            RELEASE_ASSERT(name->lookup_type == ScopeInfo::VarScopeType::FAST, "");
-            RELEASE_ASSERT(name->id.c_str()[0] != '.', "");
-
-            Register reg = RAX;
-            if (i == 0) {
-                reg = RDI;
-            } else if (i == 1) {
-                reg = RSI;
-            } else if (i == 2) {
-                reg = RDX;
-            } else {
-                RELEASE_ASSERT("", ">3 args not implemented yet");
-            }
-
-#ifdef Py_REF_DEBUG
-            a.mov(Immediate(&_Py_RefTotal), R12);
-            a.incl(Indirect(R12, 0));
-#endif
-            a.incl(Indirect(reg, offsetof(Box, ob_refcnt)));
-            a.mov(reg, vregStackSlot(name));
-        }
 
         std::vector<uint8_t*> block_starts;
 

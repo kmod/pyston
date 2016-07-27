@@ -843,7 +843,7 @@ std::pair<int, llvm::DenseSet<int>> JitFragmentWriter::finishCompilation() {
         std::unique_ptr<ICInfo> pp = registerCompiledPatchpoint(
             start_addr, slowpath_start, initialization_info.continue_addr, slowpath_rtn_addr, pp_info.ic.get(),
             pp_info.stack_info, LiveOutSet(), std::move(pp_info.decref_infos));
-        pp->associateNodeWithICInfo(pp_info.node);
+        pp->associateNodeWithBJitICInfo(pp_info.node);
         pp.release();
     }
 

@@ -853,7 +853,7 @@ private:
             type_recorder = NULL;
         }
 
-        return OpInfo(irstate->getEffortLevel(), type_recorder, unw_info, ICInfo::getICInfoForNode(ast));
+        return OpInfo(irstate->getEffortLevel(), type_recorder, unw_info, ICInfo::getBJitICInfoForNode(ast));
     }
 
     OpInfo getEmptyOpInfo(const UnwindInfo& unw_info) {

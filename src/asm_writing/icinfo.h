@@ -139,8 +139,8 @@ public:
 
     friend class ICSlotRewrite;
 
-    static ICInfo* getICInfoForNode(AST* node);
-    void associateNodeWithICInfo(AST* node);
+    static ICInfo* getBJitICInfoForNode(AST* node);
+    void associateNodeWithBJitICInfo(AST* node);
 
     void appendDecrefInfosTo(std::vector<DecrefInfo>& dest_decref_infos);
 };

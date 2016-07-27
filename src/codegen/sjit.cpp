@@ -314,7 +314,7 @@ public:
 
         // clear user visible vregs
         // TODO there are faster ways to do this
-        int num_user_visible = source->cfg->getVRegInfo().getNumOfUserVisibleVRegs();
+        int num_user_visible = source->cfg->getVRegInfo().getTotalNumOfVRegs();
         for (int i = 0; i < num_user_visible; i++) {
             a.mov(RAX, vregStackSlot(i));
         }

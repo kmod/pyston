@@ -791,7 +791,8 @@ private:
             BST_HasNext* test_call = allocAndPush<BST_HasNext>();
             unmapExpr(dup_iter_name, &test_call->vreg_value);
             test_call->lineno = c->target->lineno;
-            TmpValue tmp_test_name = createDstName(test_call);
+            TmpValue tmp_test_nonzero = callNonzero(test_call);
+            TmpValue tmp_test_name = createDstName(tmp_test_nonzero);
 
             CFGBlock* body_block = cfg->addDeferredBlock();
             body_block->info = "comprehension_body";

@@ -181,6 +181,7 @@ public:
     void lea(Indirect mem, Register reg);
 
     void test(Register reg1, Register reg2);
+    void testb(Register reg1, Register reg2);
 
     void jmp_cond(JumpDestination dest, ConditionCode condition);
     void jmp(JumpDestination dest);

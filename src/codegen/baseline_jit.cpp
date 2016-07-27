@@ -500,12 +500,7 @@ RewriterVar* JitFragmentWriter::emitLandingpad() {
 }
 
 RewriterVar* JitFragmentWriter::emitNonzero(RewriterVar* v) {
-    if (var_is_a_python_bool.count(v))
-        return v;
-    // nonzeroHelper returns bool
-    auto rtn = call(false, (void*)nonzeroHelper, v)->setType(RefType::BORROWED);
-    var_is_a_python_bool.insert(rtn);
-    return rtn;
+    return emitPPCall((void*)nonzero, {v}, 256).first;
 }
 
 RewriterVar* JitFragmentWriter::emitNotNonzero(RewriterVar* v) {
@@ -1052,10 +1047,6 @@ BORROWED(Box*) JitFragmentWriter::hasnextHelper(Box* b) {
     return pyston::hasnext(b) ? Py_True : Py_False;
 }
 
-BORROWED(Box*) JitFragmentWriter::nonzeroHelper(Box* b) {
-    return b->nonzeroIC() ? Py_True : Py_False;
-}
-
 BORROWED(Box*) JitFragmentWriter::notHelper(Box* b) {
     return b->nonzeroIC() ? Py_False : Py_True;
 }
@@ -1261,27 +1252,19 @@ void JitFragmentWriter::_emitSideExit(STOLEN(RewriterVar*) var, RewriterVar* val
 
     assert(val == (uint64_t)Py_True || val == (uint64_t)Py_False);
 
-    // HAXX ahead:
-    // Override the automatic refcounting system, to force a decref to happen before the jump.
-    // Really, we should probably do a decref on either side post-jump.
-    // But the automatic refcounter doesn't support that, and since the value is either True or False,
-    // we can get away with doing the decref early.
     if (var->reftype == RefType::OWNED) {
-        _decref(var);
-        // Hax: override the automatic refcount system
-        var->reftype = RefType::BORROWED;
+        RELEASE_ASSERT(0, "");
     }
 
     assembler::Register var_reg = var->getInReg();
-    if (isLargeConstant(val)) {
-        assembler::Register reg = val_constant->getInReg(Location::any(), true, /* otherThan */ var_reg);
-        assembler->cmp(var_reg, reg);
-    } else {
-        assembler->cmp(var_reg, assembler::Immediate(val));
-    }
+    assembler->testb(var_reg, var_reg);
+
+    auto condition = assembler::COND_NOT_EQUAL;
+    if (val == (uint64_t)Py_False)
+        condition = assembler::COND_EQUAL;
 
     {
-        assembler::ForwardJump jne(*assembler, assembler::COND_EQUAL);
+        assembler::ForwardJump jne(*assembler, condition);
 
         ExitInfo exit_info;
         _emitJump(next_block, next_block_var, exit_info);

@@ -1045,6 +1045,32 @@ void Assembler::lea(Indirect mem, Register reg) {
     }
 }
 
+void Assembler::testb(Register reg1, Register reg2) {
+    int reg1_idx = reg1.regnum;
+    int reg2_idx = reg2.regnum;
+
+    bool force_rex = false;
+    int rex = 0;
+    if (reg1_idx >= 8) {
+        rex |= REX_R;
+        reg1_idx -= 8;
+    }
+    if (reg2_idx >= 8) {
+        rex |= REX_B;
+        reg2_idx -= 8;
+    }
+
+    if (reg1_idx >= 4)
+        force_rex = true;
+    if (reg2_idx >= 4)
+        force_rex = true;
+
+    if (rex || force_rex)
+        emitRex(rex);
+    emitByte(0x84);
+    emitModRM(0b11, reg1_idx, reg2_idx);
+}
+
 void Assembler::test(Register reg1, Register reg2) {
     int reg1_idx = reg1.regnum;
     int reg2_idx = reg2.regnum;

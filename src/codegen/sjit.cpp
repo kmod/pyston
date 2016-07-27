@@ -134,38 +134,57 @@ private:
             return false;
         }
 
-#if 0
         if (expr->type == AST_TYPE::Compare) {
             auto compare = ast_cast<AST_Compare>(expr);
             assert(compare->ops.size() == 1);
             assert(compare->comparators.size() == 1);
 
-            assert(can_use_others);
+            auto l1 = evalSimpleExpr(compare->left);
+            auto l2 = evalSimpleExpr(compare->comparators[0]);
+            assert(l1 != dest);
+            assert(l2 != dest);
 
-            RELEASE_ASSERT(0, "add refcounting");
-
-            auto r1 = evalExpr(compare->left, RDI);
-            assert(r1 == RDI);
-            auto r2 = evalExpr(compare->comparators[0], RSI);
-            assert(r2 == RSI);
+            mov(l1, RDI);
+            mov(l2, RSI);
             a.mov(Immediate(compare->ops[0]), RDX);
             // a.call(Immediate((void*)pyston::compare));
             a.mov(Immediate((void*)pyston::compare), R11);
             a.callq(R11);
-            if (dest.type != Location::AnyReg && dest_reg != RAX) {
-                a.mov(RAX, dest_reg);
-                return dest_reg;
-            }
-            return RAX;
-        }
+
+            a.mov(RAX, dest);
+
+            if (l1.zero_at_end) {
+                mov(l1, RDI);
+#ifndef Py_REF_DEBUG
+                static_assert(0, "want the faster version here");
 #endif
+                a.mov(Immediate((void*)_decref), R11);
+                a.callq(R11);
+                a.clear_reg(RAX);
+                assert(!l1.is_constant);
+                a.mov(RAX, l1.mem);
+            }
+
+            if (l2.zero_at_end) {
+                mov(l2, RDI);
+#ifndef Py_REF_DEBUG
+                static_assert(0, "want the faster version here");
+#endif
+                a.mov(Immediate((void*)_decref), R11);
+                a.callq(R11);
+                a.clear_reg(RAX);
+                assert(!l2.is_constant);
+                a.mov(RAX, l2.mem);
+            }
+
+            return true;
+        }
 
         if (expr->type == AST_TYPE::BinOp) {
             auto binop = ast_cast<AST_BinOp>(expr);
 
             auto l1 = evalSimpleExpr(binop->left);
             auto l2 = evalSimpleExpr(binop->right);
-            assert(!l2.zero_at_end);
             assert(l1 != dest);
             assert(l2 != dest);
 
@@ -291,11 +310,6 @@ public:
         vregs_rsp_offset = scratch_size;
         frameinfo_rsp_offset = vregs_rsp_offset + vreg_size;
 
-        assert(!param_names->arg_names.size());
-        assert(!param_names->vararg_name);
-        assert(!param_names->kwarg_name);
-        assert(!source->is_generator);
-
         a.clear_reg(RAX);
 
         // clear user visible vregs
@@ -343,7 +357,17 @@ public:
     }
 
     CompiledFunction* run() {
+        assert(!param_names->vararg_name);
+        assert(!param_names->kwarg_name);
+        assert(!source->is_generator);
+        assert(!source->getScopeInfo()->takesClosure());
+
+        for (int i = 0; i < param_names->arg_names.size(); i++) {
+        }
+        assert(!param_names->arg_names.size());
+
         std::vector<uint8_t*> block_starts;
+
         for (auto block : source->cfg->blocks) {
             while (block_starts.size() < block->idx)
                 block_starts.emplace_back();
@@ -480,6 +504,56 @@ public:
                     a.pop(R15);
                     a.pop(RBP);
                     a.retq();
+                } else if (stmt->type == AST_TYPE::Print) {
+                    auto print = ast_cast<AST_Print>(stmt);
+
+                    if (print->dest) {
+                        auto dest = evalSimpleExpr(print->dest);
+                        mov(dest, RDI);
+                    } else {
+                        a.clear_reg(RDI);
+                    }
+
+                    if (print->values.size()) {
+                        auto var = evalSimpleExpr(print->values[0]);
+                        mov(var, RSI);
+                    } else {
+                        a.clear_reg(RSI);
+                    }
+
+                    a.mov(Immediate(print->nl ? 1 : 0), RDX);
+                    a.mov(Immediate((void*)pyston::printHelper), R11);
+                    a.callq(R11);
+
+                    if (print->dest) {
+                        auto dest = evalSimpleExpr(print->dest);
+                        if (dest.zero_at_end) {
+                            mov(dest, RDI);
+#ifndef Py_REF_DEBUG
+                            static_assert(0, "want the faster version here");
+#endif
+                            a.mov(Immediate((void*)_decref), R11);
+                            a.callq(R11);
+                            a.clear_reg(RAX);
+                            assert(!dest.is_constant);
+                            a.mov(RAX, dest.mem);
+                        }
+                    }
+
+                    if (print->values.size()) {
+                        auto var = evalSimpleExpr(print->values[0]);
+                        if (var.zero_at_end) {
+                            mov(var, RDI);
+#ifndef Py_REF_DEBUG
+                            static_assert(0, "want the faster version here");
+#endif
+                            a.mov(Immediate((void*)_decref), R11);
+                            a.callq(R11);
+                            a.clear_reg(RAX);
+                            assert(!var.is_constant);
+                            a.mov(RAX, var.mem);
+                        }
+                    }
                 } else {
                     printf("Failed to sjit:\n");
                     print_ast(stmt);

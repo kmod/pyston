@@ -495,7 +495,8 @@ public:
                     auto scratch = scratchSlot(0);
                     if (ret->value) {
                         auto l = evalSimpleExpr(ret->value);
-                        assert(!l.zero_at_end);
+                        // can ignore l.zero_at_end, since it will just get cleared by deinitFrame
+                        // assert(!l.zero_at_end);
                         mov(l, R11);
                     } else {
                         printf("%p\n", Py_None);

@@ -204,7 +204,7 @@ static void optimizeIR(llvm::Function* f, EffortLevel effort) {
             fprintf(stderr, "after optimization %d:\n", i);
             printf("\033[36m");
             fflush(stdout);
-            dumpPrettyIR(f);
+            //dumpPrettyIR(f);
             // f->dump();
             // g.cur_module->dump();
             printf("\033[0m");
@@ -1156,7 +1156,7 @@ CompiledFunction* doCompile(FunctionMetadata* md, SourceInfo* source, ParamNames
         printf("generated IR:\n");
         printf("\033[33m");
         fflush(stdout);
-        dumpPrettyIR(f);
+        //dumpPrettyIR(f);
         // f->dump();
         // g.cur_module->dump();
         // g.cur_module->print(llvm::outs(), NULL);

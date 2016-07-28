@@ -373,6 +373,7 @@ void addDecrefs(llvm::Value* v, bool nullable, int num_refs, llvm::Instruction* 
 
 void addCXXFixup(llvm::Instruction* inst, const llvm::SmallVector<llvm::TrackingVH<llvm::Value>, 4>& to_decref,
                  RefcountTracker* rt) {
+    return;
     // inst->getParent()->getParent()->dump();
     // inst->dump();
 
@@ -712,9 +713,9 @@ void RefcountTracker::addRefcounts(IRGenState* irstate) {
     int num_bb = f->size();
     BBGraph bbg(f);
 
-    if (VERBOSITY() >= 2) {
+    if (VERBOSITY() >= 1) {
         fprintf(stderr, "Before refcounts:\n");
-        fprintf(stderr, "\033[35m");
+        fprintf(stderr, "\033[36m");
         dumpPrettyIR(f);
         fprintf(stderr, "\033[0m");
     }

@@ -418,36 +418,45 @@ private:
 
         llvm::BasicBlock* cur_block = builder.GetInsertBlock();
 
-        llvm::BasicBlock* pendingcalls_set = createBasicBlock("_pendingcalls_set");
-        pendingcalls_set->moveAfter(cur_block);
-        llvm::BasicBlock* join_block = createBasicBlock("continue_after_pendingcalls_check");
-        join_block->moveAfter(pendingcalls_set);
+        //llvm::BasicBlock* pendingcalls_set = createBasicBlock("_pendingcalls_set");
+        //pendingcalls_set->moveAfter(cur_block);
+        //llvm::BasicBlock* join_block = createBasicBlock("continue_after_pendingcalls_check");
+        //join_block->moveAfter(pendingcalls_set);
 
-        llvm::Value* pendingcalls_to_do_val = builder.CreateLoad(pendingcalls_to_do_gv, true /* volatile */);
-        llvm::Value* is_zero
-            = builder.CreateICmpEQ(pendingcalls_to_do_val, getConstantInt(0, pendingcalls_to_do_val->getType()));
+        static int n = 0;
+        n++;
+        if (n == 1 || n == 6 || (n == 3 || n == 5 || n == 4))
+            llvm::Value* pendingcalls_to_do_val = builder.CreateLoad(pendingcalls_to_do_gv, true /* volatile */);
+        //llvm::Value* is_zero
+            //= builder.CreateICmpEQ(pendingcalls_to_do_val, getConstantInt(0, pendingcalls_to_do_val->getType()));
 
-        llvm::Metadata* md_vals[]
-            = { llvm::MDString::get(g.context, "branch_weights"), llvm::ConstantAsMetadata::get(getConstantInt(1000)),
-                llvm::ConstantAsMetadata::get(getConstantInt(1)) };
-        llvm::MDNode* branch_weights = llvm::MDNode::get(g.context, llvm::ArrayRef<llvm::Metadata*>(md_vals));
+        //llvm::Metadata* md_vals[]
+            //= { llvm::MDString::get(g.context, "branch_weights"), llvm::ConstantAsMetadata::get(getConstantInt(1000)),
+                //llvm::ConstantAsMetadata::get(getConstantInt(1)) };
+        //llvm::MDNode* branch_weights = llvm::MDNode::get(g.context, llvm::ArrayRef<llvm::Metadata*>(md_vals));
 
 
+                //builder.CreateBr(join_block);
+#if 0
         builder.CreateCondBr(is_zero, join_block, pendingcalls_set, branch_weights);
         {
             setCurrentBasicBlock(pendingcalls_set);
 
+                builder.CreateBr(join_block);
+#if 0
             if (exc_dest) {
-                builder.CreateInvoke(g.funcs.makePendingCalls, join_block, exc_dest);
+                //builder.CreateInvoke(g.funcs.makePendingCalls, join_block, exc_dest);
             } else {
-                auto call = builder.CreateCall(g.funcs.makePendingCalls);
-                irstate->getRefcounts()->setMayThrow(call);
+                //auto call = builder.CreateCall(g.funcs.makePendingCalls);
+                //irstate->getRefcounts()->setMayThrow(call);
                 builder.CreateBr(join_block);
             }
+#endif
         }
+#endif
 
-        cur_block = join_block;
-        setCurrentBasicBlock(join_block);
+        //cur_block = join_block;
+        //setCurrentBasicBlock(join_block);
 #endif
     }
 
@@ -645,6 +654,7 @@ public:
     // to a function which could throw an exception, inspect the python call frame,...
     // Only patchpoint don't need to set the current statement because the stmt will be inluded in the stackmap args.
     void emitSetCurrentStmt(AST_stmt* stmt) {
+        return;
         if (stmt)
             getBuilder()->CreateStore(stmt ? embedRelocatablePtr(stmt, g.llvm_aststmt_type_ptr)
                                            : getNullPtr(g.llvm_aststmt_type_ptr),

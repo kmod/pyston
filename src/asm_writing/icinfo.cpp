@@ -23,6 +23,7 @@
 #include "asm_writing/assembler.h"
 #include "asm_writing/mc_writer.h"
 #include "asm_writing/rewriter.h"
+#include "codegen/irgen.h"
 #include "codegen/patchpoints.h"
 #include "codegen/unwinding.h"
 #include "core/common.h"
@@ -32,7 +33,9 @@
 
 namespace pyston {
 
-bool in_llvm = false;
+IREmitter* rewriter_emitter = NULL;
+std::unordered_map<RewriterVar*, llvm::Value*> var_map;
+llvm::BasicBlock* deopt_block = NULL;
 
 using namespace pyston::assembler;
 

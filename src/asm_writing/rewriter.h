@@ -424,11 +424,15 @@ protected:
 
 
     std::unique_ptr<ICSlotRewrite> rewrite;
+public:
     assembler::Assembler* assembler;
+protected:
     ICSlotInfo* picked_slot;
 
     ConstLoader const_loader;
+public:
     std::deque<RewriterVar> vars;
+protected:
 
     const Location return_location;
 
@@ -452,7 +456,11 @@ protected:
     llvm::SmallVector<int, 8> live_out_regs;
 
     LocMap<RewriterVar*> vars_by_location;
+public:
     llvm::SmallVector<RewriterVar*, 8> args;
+    llvm::SmallVector<std::pair<uint64_t, RewriterVar*>, 16>& getConstants();
+
+protected:
     llvm::SmallVector<RewriterVar*, 8> live_outs;
 
     // needs_invalidation_support: whether we do some extra work to make sure that the code that this Rewriter
@@ -461,7 +469,9 @@ protected:
     Rewriter(std::unique_ptr<ICSlotRewrite> rewrite, int num_args, const LiveOutSet& live_outs,
              bool needs_invalidation_support = true);
 
+public:
     std::deque<RewriterAction> actions;
+protected:
     int current_action_idx; // in the emitting phase get's set to index of currently executed action
 
     template <typename F> RewriterAction* addAction(F&& action, llvm::ArrayRef<RewriterVar*> vars, ActionType type) {

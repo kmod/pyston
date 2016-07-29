@@ -28,6 +28,7 @@
 #include "codegen/irgen/util.h"
 #include "codegen/osrentry.h"
 #include "codegen/patchpoints.h"
+#include "codegen/superjit.h"
 #include "codegen/type_recording.h"
 #include "core/ast.h"
 #include "core/cfg.h"
@@ -560,7 +561,32 @@ private:
             r = bjit_ic_info->getRewriter();
 
         if (r) {
+            assert(!rewriter_emitter);
+            rewriter_emitter = this;
+
+            r->vars.clear();
+            r->assembler = NULL;
+            var_map.clear();
+
+            deopt_block = this->createBasicBlock("ic_deopt");
+
+            assert(args.size() == r->args.size());
+            for (int i = 0; i < args.size(); i++) {
+                var_map[r->args[i]] = args[i];
+            }
+
+            for (auto&& p : r->getConstants()) {
+                var_map[p.second] = llvm::ConstantExpr::getIntToPtr(getConstantInt(p.first, g.i64), g.llvm_value_type_ptr);
+            }
+
+            for (auto&& a : r->actions) {
+                a.action();
+            }
+
             RELEASE_ASSERT(0, "");
+
+            assert(rewriter_emitter == this);
+            rewriter_emitter = NULL;
         }
 
         if (pp == NULL)

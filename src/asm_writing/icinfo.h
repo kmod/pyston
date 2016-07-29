@@ -39,8 +39,6 @@ class ICInvalidator;
 
 class Rewriter;
 
-extern bool in_llvm;
-
 // This registers a decref info in the constructor and deregisters it in the destructor.
 struct DecrefInfo {
     uint64_t ip;

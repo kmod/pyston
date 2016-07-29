@@ -23,6 +23,8 @@ python -c 'import __future__'
 python -c 'import sys; print sys.executable'
 # The first entry of each line is the main thing we're testing; the rest are dependencies.
 # List the dependencies explicitly so that we can enforce specific revisions; these were the
+pip install pytz==2011e
+pip install 'pytz>=0a'
 # versions that got installed as of 6/5/15
 pip install bcrypt==1.1.0 cffi==1.1.0 six==1.9.0 pycparser==2.13
 pip install python-gflags==2.0

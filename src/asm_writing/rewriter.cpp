@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "asm_writing/icinfo.h"
+#include "codegen/superjit.h"
 #include "codegen/unwinding.h"
 #include "core/common.h"
 #include "core/stats.h"
@@ -310,6 +311,24 @@ void Rewriter::_nextSlotJump(assembler::ConditionCode condition) {
 }
 
 void Rewriter::_addGuard(RewriterVar* var, RewriterVar* val_constant, bool negate) {
+    if (rewriter_emitter) {
+        llvm::Value* v1 = var_map[var];
+        llvm::Value* v2 = var_map[val_constant];
+        assert(v1);
+        assert(v2);
+
+        llvm::Value* b;
+        if (!negate)
+            b = rewriter_emitter->getBuilder()->CreateICmpEQ(v1, v2);
+        else
+            b = rewriter_emitter->getBuilder()->CreateICmpNE(v1, v2);
+
+        llvm::BasicBlock* continue_dest = rewriter_emitter->createBasicBlock();
+        rewriter_emitter->getBuilder()->CreateCondBr(b, continue_dest, deopt_block);
+        rewriter_emitter->setCurrentBasicBlock(continue_dest);
+        return;
+    }
+
     if (LOG_IC_ASSEMBLY)
         assembler->comment("_addGuard");
 
@@ -373,6 +392,32 @@ void RewriterVar::addAttrGuard(int offset, uint64_t val, bool negate) {
 }
 
 void Rewriter::_addAttrGuard(RewriterVar* var, int offset, RewriterVar* val_constant, bool negate) {
+    if (rewriter_emitter) {
+        llvm::Value* v = var_map[var];
+        assert(v);
+
+        assert(offset % 8 == 0);
+        v = rewriter_emitter->getBuilder()->CreateBitCast(v, g.llvm_value_type_ptr_ptr);
+        v = rewriter_emitter->getBuilder()->CreateConstGEP1_32(v, offset / 8);
+        //v->dump();
+        //v = rewriter_emitter->getBuilder()->CreateConstGEP2_32(v, 0, offset / 8);
+        v = rewriter_emitter->getBuilder()->CreateLoad(v);
+
+        llvm::Value* v2 = var_map[val_constant];
+        assert(v2);
+
+        llvm::Value* b;
+        if (!negate)
+            b = rewriter_emitter->getBuilder()->CreateICmpEQ(v, v2);
+        else
+            b = rewriter_emitter->getBuilder()->CreateICmpNE(v, v2);
+
+        llvm::BasicBlock* continue_dest = rewriter_emitter->createBasicBlock();
+        rewriter_emitter->getBuilder()->CreateCondBr(b, continue_dest, deopt_block);
+        rewriter_emitter->setCurrentBasicBlock(continue_dest);
+        return;
+    }
+
     if (LOG_IC_ASSEMBLY)
         assembler->comment("_addAttrGuard");
 
@@ -436,7 +481,21 @@ RewriterVar* RewriterVar::getAttr(int offset, Location dest, assembler::MovType 
 }
 
 void Rewriter::_getAttr(RewriterVar* result, RewriterVar* ptr, int offset, Location dest, assembler::MovType type) {
-    RELEASE_ASSERT(!in_llvm, "");
+    if (rewriter_emitter) {
+        llvm::Value* v = var_map[ptr];
+        assert(v);
+
+        assert(offset % 8 == 0);
+        v = rewriter_emitter->getBuilder()->CreateBitCast(v, g.llvm_value_type_ptr_ptr);
+        v = rewriter_emitter->getBuilder()->CreateConstGEP1_32(v, offset / 8);
+        //v->dump();
+        //v = rewriter_emitter->getBuilder()->CreateConstGEP2_32(v, 0, offset / 8);
+        v = rewriter_emitter->getBuilder()->CreateLoad(v);
+        assert(!var_map.count(result));
+        var_map[result] = v;
+        return;
+    }
+
     if (LOG_IC_ASSEMBLY)
         assembler->comment("_getAttr");
 
@@ -1188,6 +1247,10 @@ void Rewriter::_callOptimalEncoding(assembler::Register tmp_reg, void* func_addr
 void Rewriter::_call(RewriterVar* result, bool has_side_effects, bool can_throw, void* func_addr,
                      llvm::ArrayRef<RewriterVar*> args, llvm::ArrayRef<RewriterVar*> args_xmm,
                      llvm::ArrayRef<RewriterVar*> vars_to_bump) {
+    if (rewriter_emitter) {
+        RELEASE_ASSERT(0, "");
+    }
+
     if (LOG_IC_ASSEMBLY)
         assembler->comment("_call");
 
@@ -1412,6 +1475,10 @@ void RewriterVar::releaseIfNoUses() {
 
         this->_release();
     }
+}
+
+llvm::SmallVector<std::pair<uint64_t, RewriterVar*>, 16>& Rewriter::getConstants() {
+    return const_loader.consts;
 }
 
 void Rewriter::commit(std::unique_ptr<Rewriter> uthis) {

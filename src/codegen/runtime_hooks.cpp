@@ -176,6 +176,7 @@ void initGlobalFuncs(GlobalState& g) {
     g.funcs.my_assert = getFunc((void*)my_assert, "my_assert");
     g.funcs.malloc = addFunc((void*)malloc, g.i8_ptr, g.i64);
     g.funcs.free = addFunc((void*)free, g.void_, g.i8_ptr);
+    g.funcs.abort = GET(abort);
 
     g.funcs.allowGLReadPreemption = getFunc((void*)threading::allowGLReadPreemption, "allowGLReadPreemption");
 

@@ -408,6 +408,7 @@ void Rewriter::_addAttrGuard(RewriterVar* var, int offset, RewriterVar* val_cons
         //v->dump();
         //v = rewriter_emitter->getBuilder()->CreateConstGEP2_32(v, 0, offset / 8);
         v = rewriter_emitter->getBuilder()->CreateLoad(v);
+        rewriter_emitter->setType(v, RefType::BORROWED);
 
         llvm::Value* v2 = var_map[val_constant];
         assert(v2);
@@ -498,6 +499,7 @@ void Rewriter::_getAttr(RewriterVar* result, RewriterVar* ptr, int offset, Locat
         //v = rewriter_emitter->getBuilder()->CreateConstGEP2_32(v, 0, offset / 8);
         v = rewriter_emitter->getBuilder()->CreateLoad(v);
         assert(!var_map.count(result));
+        rewriter_emitter->setType(v, RefType::BORROWED);
         var_map[result] = v;
         return;
     }
@@ -1269,6 +1271,7 @@ void Rewriter::_call(RewriterVar* result, bool has_side_effects, bool can_throw,
         }
         llvm::Value* r = rewriter_emitter->getBuilder()->CreateCall(f, llvm_args);
         assert(!var_map.count(result));
+        rewriter_emitter->setType(r, RefType::BORROWED);
         var_map[result] = r;
         return;
     }

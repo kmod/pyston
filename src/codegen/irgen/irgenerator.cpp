@@ -548,7 +548,7 @@ private:
         }
     }
 
-    llvm::CallSite emitPatchpoint(llvm::Type* return_type, const ICSetupInfo* pp, llvm::Value* func,
+    llvm::Instruction* emitPatchpoint(llvm::Type* return_type, const ICSetupInfo* pp, llvm::Value* func,
                                   const std::vector<llvm::Value*>& args,
                                   const std::vector<llvm::Value*>& ic_stackmap_args, const UnwindInfo& unw_info,
                                   ExceptionStyle target_exception_style, llvm::Value* capi_exc_value) {
@@ -568,14 +568,18 @@ private:
             r->assembler = NULL;
 
             deopt_block = this->createBasicBlock("ic_deopt");
+            llvm::CallInst::Create(g.funcs.abort, "", deopt_block);
+            new llvm::UnreachableInst(g.context, deopt_block);
 
             assert(args.size() == r->args.size());
             for (int i = 0; i < args.size(); i++) {
                 var_map[r->args[i]] = args[i];
             }
 
+            // TODO: iterate over these deterministically and then use embedRelocatablePtr
             for (auto&& p : r->getConstants()) {
-                var_map[p.second] = llvm::ConstantExpr::getIntToPtr(getConstantInt(p.first, g.i64), g.llvm_value_type_ptr);
+                llvm::Value* v = var_map[p.second] = llvm::ConstantExpr::getIntToPtr(getConstantInt(p.first, g.i64), g.llvm_value_type_ptr);
+                rewriter_emitter->setType(v, RefType::BORROWED);
             }
 
             for (auto&& a : r->actions) {
@@ -592,7 +596,7 @@ private:
             deopt_block = NULL;
 
             //return r;
-            return this->getBuilder()->CreatePtrToInt(r, g.i64);
+            return llvm::cast<llvm::Instruction>(this->getBuilder()->CreatePtrToInt(r, g.i64));
         }
 
         if (pp == NULL)
@@ -656,7 +660,8 @@ private:
         }
         llvm::Function* patchpoint = this->getIntrinsic(intrinsic_id);
         llvm::CallSite rtn = this->emitCall(unw_info, patchpoint, pp_args, target_exception_style, capi_exc_value);
-        return rtn;
+        rtn.setCallingConv(pp->getCallingConvention());
+        return rtn.getInstruction();
     }
 
 public:
@@ -758,12 +763,11 @@ public:
                                 llvm::Value* capi_exc_value = NULL) override {
         std::vector<llvm::Value*> stackmap_args;
 
-        llvm::CallSite rtn = emitPatchpoint(pp->hasReturnValue() ? g.i64 : g.void_, pp,
+        llvm::Instruction* rtn = emitPatchpoint(pp->hasReturnValue() ? g.i64 : g.void_, pp,
                                             embedConstantPtr(func_addr, g.i8->getPointerTo()), args, stackmap_args,
                                             unw_info, target_exception_style, capi_exc_value);
 
-        rtn.setCallingConv(pp->getCallingConvention());
-        return rtn.getInstruction();
+        return rtn;
     }
 
     llvm::Value* createDeopt(AST_stmt* current_stmt, AST_expr* node, llvm::Value* node_value) override {

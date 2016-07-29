@@ -30,7 +30,7 @@ struct GlobalFuncs {
 
     llvm::Value* softspace;
 
-    llvm::Value* printf, *my_assert, *malloc, *free;
+    llvm::Value* printf, *my_assert, *malloc, *free, *abort;
 
     llvm::Value* boxInt, *unboxInt, *boxFloat, *unboxFloat, *createFunctionFromMetadata, *getFunctionMetadata,
         *boxInstanceMethod, *boxBool, *unboxBool, *createTuple, *createDict, *createList, *createSlice,

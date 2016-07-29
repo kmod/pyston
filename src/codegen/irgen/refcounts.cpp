@@ -715,7 +715,7 @@ void RefcountTracker::addRefcounts(IRGenState* irstate) {
 
     if (VERBOSITY() >= 1) {
         fprintf(stderr, "Before refcounts:\n");
-        fprintf(stderr, "\033[36m");
+        fprintf(stderr, "\033[35m");
         dumpPrettyIR(f);
         fprintf(stderr, "\033[0m");
     }

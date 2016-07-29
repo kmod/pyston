@@ -566,7 +566,6 @@ private:
 
             r->vars.clear();
             r->assembler = NULL;
-            var_map.clear();
 
             deopt_block = this->createBasicBlock("ic_deopt");
 
@@ -583,10 +582,17 @@ private:
                 a.action();
             }
 
-            RELEASE_ASSERT(0, "");
-
+            auto r = rewriter_return;
+            assert(r);
             assert(rewriter_emitter == this);
+
             rewriter_emitter = NULL;
+            var_map.clear();
+            rewriter_return = NULL;
+            deopt_block = NULL;
+
+            //return r;
+            return this->getBuilder()->CreatePtrToInt(r, g.i64);
         }
 
         if (pp == NULL)

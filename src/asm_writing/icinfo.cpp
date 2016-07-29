@@ -33,10 +33,6 @@
 
 namespace pyston {
 
-IREmitter* rewriter_emitter = NULL;
-std::unordered_map<RewriterVar*, llvm::Value*> var_map;
-llvm::BasicBlock* deopt_block = NULL;
-
 using namespace pyston::assembler;
 
 #define MAX_RETRY_BACKOFF 1024

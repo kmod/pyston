@@ -18,12 +18,18 @@
 #include "asm_writing/icinfo.h"
 #include "codegen/superjit.h"
 #include "codegen/unwinding.h"
+#include "codegen/irgen/util.h"
 #include "core/common.h"
 #include "core/stats.h"
 #include "runtime/objmodel.h"
 #include "runtime/types.h"
 
 namespace pyston {
+
+IREmitter* rewriter_emitter = NULL;
+std::unordered_map<RewriterVar*, llvm::Value*> var_map;
+llvm::BasicBlock* deopt_block = NULL;
+llvm::Value* rewriter_return = NULL;
 
 static const assembler::Register std_allocatable_regs[] = {
     assembler::RAX, assembler::RCX, assembler::RDX,
@@ -1248,7 +1254,23 @@ void Rewriter::_call(RewriterVar* result, bool has_side_effects, bool can_throw,
                      llvm::ArrayRef<RewriterVar*> args, llvm::ArrayRef<RewriterVar*> args_xmm,
                      llvm::ArrayRef<RewriterVar*> vars_to_bump) {
     if (rewriter_emitter) {
-        RELEASE_ASSERT(0, "");
+        assert(args_xmm.empty());
+
+        std::vector<llvm::Type*> arg_types(args.size(), g.llvm_value_type_ptr);
+        llvm::FunctionType* ft = llvm::FunctionType::get(g.llvm_value_type_ptr, arg_types, false);
+
+        llvm::Value* f = embedConstantPtr(func_addr, ft->getPointerTo());
+
+        std::vector<llvm::Value*> llvm_args;
+        for (auto&& a : args) {
+            auto v = var_map[a];
+            assert(v);
+            llvm_args.push_back(v);
+        }
+        llvm::Value* r = rewriter_emitter->getBuilder()->CreateCall(f, llvm_args);
+        assert(!var_map.count(result));
+        var_map[result] = r;
+        return;
     }
 
     if (LOG_IC_ASSEMBLY)
@@ -1797,6 +1819,13 @@ void Rewriter::commitReturning(std::unique_ptr<Rewriter> uthis, RewriterVar* var
     ASSERT(var->reftype != RefType::UNKNOWN, "%p", var);
 
     addAction([=]() {
+        if (rewriter_emitter) {
+            assert(!rewriter_return);
+            rewriter_return = var_map[var];
+            assert(rewriter_return);
+            return;
+        }
+
         if (LOG_IC_ASSEMBLY)
             assembler->comment("commitReturning");
         var->getInReg(getReturnDestination(), true /* allow_constant_in_reg */);

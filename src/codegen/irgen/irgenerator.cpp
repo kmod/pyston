@@ -552,10 +552,12 @@ private:
                                   const std::vector<llvm::Value*>& ic_stackmap_args, const UnwindInfo& unw_info,
                                   ExceptionStyle target_exception_style, llvm::Value* capi_exc_value) {
     
-        ICInfo* bjit_ic_info = ICInfo::getBJitICInfoForNode(unw_info.current_stmt);
+        assert(unw_info.current_stmt);
+        assert(unw_info.current_stmt->type == AST_TYPE::Assign);
+        ICInfo* bjit_ic_info = ICInfo::getBJitICInfoForNode(ast_cast<AST_Assign>(unw_info.current_stmt)->value);
         Rewriter* r = NULL;
         if (bjit_ic_info)
-            auto r = bjit_ic_info->getRewriter();
+            r = bjit_ic_info->getRewriter();
 
         if (r) {
             RELEASE_ASSERT(0, "");

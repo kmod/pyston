@@ -1414,7 +1414,7 @@ void RewriterVar::releaseIfNoUses() {
     }
 }
 
-void Rewriter::commit() {
+void Rewriter::commit(std::unique_ptr<Rewriter> uthis) {
     STAT_TIMER(t0, "us_timer_rewriter", 10);
 
     // The rewriter could add decrefs here, but for now let's make the user add them explicitly
@@ -1709,6 +1709,8 @@ void Rewriter::commit() {
 
     static StatCounter ic_rewrites_total_bytes("ic_rewrites_total_bytes");
     ic_rewrites_total_bytes.log(asm_size_bytes);
+
+    picked_slot->rewriter = std::move(uthis);
 }
 
 bool Rewriter::finishAssembly(int continue_offset, bool& should_fill_with_nops, bool& variable_size_slots) {
@@ -1722,7 +1724,7 @@ bool Rewriter::finishAssembly(int continue_offset, bool& should_fill_with_nops, 
     return !assembler->hasFailed();
 }
 
-void Rewriter::commitReturning(RewriterVar* var) {
+void Rewriter::commitReturning(std::unique_ptr<Rewriter> uthis, RewriterVar* var) {
     STAT_TIMER(t0, "us_timer_rewriter", 10);
 
     ASSERT(var->reftype != RefType::UNKNOWN, "%p", var);
@@ -1736,10 +1738,10 @@ void Rewriter::commitReturning(RewriterVar* var) {
 
     var->refConsumed();
 
-    commit();
+    commit(std::move(uthis));
 }
 
-void Rewriter::commitReturningNonPython(RewriterVar* var) {
+void Rewriter::commitReturningNonPython(std::unique_ptr<Rewriter> uthis, RewriterVar* var) {
     STAT_TIMER(t0, "us_timer_rewriter", 10);
 
     assert(var->reftype == RefType::UNKNOWN);
@@ -1751,7 +1753,7 @@ void Rewriter::commitReturningNonPython(RewriterVar* var) {
         var->bumpUse();
     }, { var }, ActionType::NORMAL);
 
-    commit();
+    commit(std::move(uthis));
 }
 
 void Rewriter::addDependenceOn(ICInvalidator& invalidator) {

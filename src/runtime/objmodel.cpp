@@ -2381,7 +2381,7 @@ extern "C" Box* getclsattr(Box* obj, BoxedString* attr) {
 
         if (rewrite_args.out_success && gotten) {
             rewrite_args.out_rtn.move(-1);
-            rewriter->commit();
+            rewriter->commit(std::move(rewriter));
         }
 #else
     std::unique_ptr<Rewriter> rewriter(
@@ -2400,7 +2400,7 @@ extern "C" Box* getclsattr(Box* obj, BoxedString* attr) {
 
                 assert(return_convention == ReturnConvention::HAS_RETURN
                        || return_convention == ReturnConvention::MAYBE_EXC);
-                rewriter->commitReturning(r_rtn);
+                rewriter->commitReturning(std::move(rewriter), r_rtn);
             } else {
                 rewrite_args.getReturn(); // just to make the asserts happy
                 rewriter.reset(NULL);
@@ -2850,7 +2850,7 @@ template <ExceptionStyle S> Box* _getattrEntry(Box* obj, BoxedString* attr, void
     if (unlikely(rewriter.get() && rewriter->aggressiveness() < 5)) {
         RewriterVar* r_rtn = rewriter->call(true, (void*)_getattrEntry<S>, rewriter->getArg(0), rewriter->getArg(1),
                                             rewriter->loadConst(0, Location::forArg(2)))->setType(RefType::OWNED);
-        rewriter->commitReturning(r_rtn);
+        rewriter->commitReturning(std::move(rewriter), r_rtn);
         rewriter.reset(NULL);
     }
 
@@ -2917,7 +2917,7 @@ template <ExceptionStyle S> Box* _getattrEntry(Box* obj, BoxedString* attr, void
                     recordType(recorder, val);
                 }
 
-                rewriter->commitReturning(rtn);
+                rewriter->commitReturning(std::move(rewriter), rtn);
             }
         }
     } else {
@@ -3222,7 +3222,7 @@ extern "C" void setattr(Box* obj, BoxedString* attr, STOLEN(Box*) attr_val) {
         setattrInternal(obj, attr, attr_val, &rewrite_args);
 
         if (rewrite_args.out_success)
-            rewriter->commit();
+            rewriter->commit(std::move(rewriter));
     } else {
         setattrInternal(obj, attr, attr_val, NULL);
     }
@@ -3267,7 +3267,7 @@ extern "C" bool nonzero(Box* obj) {
         // TODO: is it faster to compare to True? (especially since it will be a constant we can embed in the rewrite)
         if (rewriter.get()) {
             RewriterVar* b = r_obj->getAttr(offsetof(BoxedBool, n), rewriter->getReturnDestination());
-            rewriter->commitReturningNonPython(b);
+            rewriter->commitReturningNonPython(std::move(rewriter), b);
         }
 
         BoxedBool* bool_obj = static_cast<BoxedBool*>(obj);
@@ -3276,7 +3276,7 @@ extern "C" bool nonzero(Box* obj) {
         if (rewriter.get()) {
             RewriterVar* n = r_obj->getAttr(offsetof(BoxedInt, n), rewriter->getReturnDestination());
             RewriterVar* b = n->toBool(rewriter->getReturnDestination());
-            rewriter->commitReturningNonPython(b);
+            rewriter->commitReturningNonPython(std::move(rewriter), b);
         }
 
         BoxedInt* int_obj = static_cast<BoxedInt*>(obj);
@@ -3284,13 +3284,13 @@ extern "C" bool nonzero(Box* obj) {
     } else if (obj->cls == float_cls) {
         if (rewriter.get()) {
             RewriterVar* b = rewriter->call(false, (void*)floatNonzeroUnboxed, r_obj);
-            rewriter->commitReturningNonPython(b);
+            rewriter->commitReturningNonPython(std::move(rewriter), b);
         }
         return static_cast<BoxedFloat*>(obj)->d != 0;
     } else if (obj->cls == none_cls) {
         if (rewriter.get()) {
             RewriterVar* b = rewriter->loadConst(0, rewriter->getReturnDestination());
-            rewriter->commitReturningNonPython(b);
+            rewriter->commitReturningNonPython(std::move(rewriter), b);
         }
         return false;
     } else if (obj->cls == long_cls) {
@@ -3299,7 +3299,7 @@ extern "C" bool nonzero(Box* obj) {
 
         if (rewriter.get()) {
             RewriterVar* r_rtn = rewriter->call(false, (void*)longNonzeroUnboxed, r_obj);
-            rewriter->commitReturningNonPython(r_rtn);
+            rewriter->commitReturningNonPython(std::move(rewriter), r_rtn);
         }
         return r;
     } else if (obj->cls == tuple_cls) {
@@ -3309,7 +3309,7 @@ extern "C" bool nonzero(Box* obj) {
         if (rewriter.get()) {
             RewriterVar* r_rtn
                 = r_obj->getAttr(offsetof(BoxedTuple, ob_size))->toBool(rewriter->getReturnDestination());
-            rewriter->commitReturningNonPython(r_rtn);
+            rewriter->commitReturningNonPython(std::move(rewriter), r_rtn);
         }
         return r;
     } else if (obj->cls == list_cls) {
@@ -3318,7 +3318,7 @@ extern "C" bool nonzero(Box* obj) {
 
         if (rewriter.get()) {
             RewriterVar* r_rtn = r_obj->getAttr(offsetof(BoxedList, size))->toBool(rewriter->getReturnDestination());
-            rewriter->commitReturningNonPython(r_rtn);
+            rewriter->commitReturningNonPython(std::move(rewriter), r_rtn);
         }
         return r;
     } else if (obj->cls == str_cls) {
@@ -3328,7 +3328,7 @@ extern "C" bool nonzero(Box* obj) {
         if (rewriter.get()) {
             RewriterVar* r_rtn
                 = r_obj->getAttr(offsetof(BoxedString, ob_size))->toBool(rewriter->getReturnDestination());
-            rewriter->commitReturningNonPython(r_rtn);
+            rewriter->commitReturningNonPython(std::move(rewriter), r_rtn);
         }
         return r;
     } else if (obj->cls == unicode_cls) {
@@ -3338,7 +3338,7 @@ extern "C" bool nonzero(Box* obj) {
         if (rewriter.get()) {
             RewriterVar* r_rtn
                 = r_obj->getAttr(offsetof(PyUnicodeObject, length))->toBool(rewriter->getReturnDestination());
-            rewriter->commitReturningNonPython(r_rtn);
+            rewriter->commitReturningNonPython(std::move(rewriter), r_rtn);
         }
         return r;
     }
@@ -3380,7 +3380,7 @@ extern "C" bool nonzero(Box* obj) {
 
             if (rewriter.get()) {
                 RewriterVar* b = rewriter->loadConst(1, rewriter->getReturnDestination());
-                rewriter->commitReturningNonPython(b);
+                rewriter->commitReturningNonPython(std::move(rewriter), b);
             }
             return true;
         }
@@ -3390,7 +3390,7 @@ extern "C" bool nonzero(Box* obj) {
         RewriterVar* rtn = crewrite_args.getReturn(ReturnConvention::HAS_RETURN);
         RewriterVar* b = rewriter->call(false, (void*)nonzeroHelper, rtn);
         rtn->refConsumed();
-        rewriter->commitReturningNonPython(b);
+        rewriter->commitReturningNonPython(std::move(rewriter), b);
     }
     return nonzeroHelper(rtn);
 }
@@ -3658,7 +3658,7 @@ extern "C" i64 unboxedLen(Box* obj) {
     if (rewriter.get()) {
         assert(0 && "how do we know this will return an int?");
         RewriterVar* rtn = r_boxed->getAttr(offsetof(BoxedInt, n), Location(assembler::RAX));
-        rewriter->commitReturning(rtn);
+        rewriter->commitReturning(std::move(rewriter), rtn);
     }
     return rtn;
 }
@@ -3915,10 +3915,10 @@ Box* _callattrEntry(Box* obj, BoxedString* attr, CallattrFlags flags, Box* arg1,
             if (return_convention == ReturnConvention::HAS_RETURN
                 || (S == CAPI && return_convention == ReturnConvention::CAPI_RETURN)) {
                 assert(rtn);
-                rewriter->commitReturning(rtn);
+                rewriter->commitReturning(std::move(rewriter), rtn);
             } else if (return_convention == ReturnConvention::NO_RETURN && flags.null_on_nonexistent) {
                 assert(!rtn);
-                rewriter->commitReturningNonPython(rewriter->loadConst(0, rewriter->getReturnDestination()));
+                rewriter->commitReturningNonPython(std::move(rewriter), rewriter->loadConst(0, rewriter->getReturnDestination()));
             }
         }
     } else {
@@ -5401,7 +5401,7 @@ static Box* runtimeCallEntry(Box* obj, ArgPassSpec argspec, Box* arg1, Box* arg2
         if (!rewrite_args.out_success) {
             rewriter.reset(NULL);
         } else
-            rewriter->commitReturning(rewrite_args.out_rtn);
+            rewriter->commitReturning(std::move(rewriter), rewrite_args.out_rtn);
     } else {
         rtn = runtimeCallInternal<S, NOT_REWRITABLE>(obj, NULL, argspec, arg1, arg2, arg3, args, keyword_names);
     }
@@ -5658,7 +5658,7 @@ extern "C" Box* binop(Box* lhs, Box* rhs, int op_type) {
         if (!rewrite_args.out_success) {
             rewriter.reset(NULL);
         } else {
-            rewriter->commitReturning(rewrite_args.out_rtn);
+            rewriter->commitReturning(std::move(rewriter), rewrite_args.out_rtn);
         }
     } else {
         rtn = binopInternal<NOT_REWRITABLE, false /*not inplace*/>(lhs, rhs, op_type, NULL);
@@ -5688,7 +5688,7 @@ extern "C" Box* augbinop(Box* lhs, Box* rhs, int op_type) {
         if (!rewrite_args.out_success) {
             rewriter.reset(NULL);
         } else {
-            rewriter->commitReturning(rewrite_args.out_rtn);
+            rewriter->commitReturning(std::move(rewriter), rewrite_args.out_rtn);
         }
     } else {
         rtn = binopInternal<NOT_REWRITABLE, true /*inplace*/>(lhs, rhs, op_type, NULL);
@@ -6001,7 +6001,7 @@ extern "C" Box* compare(Box* lhs, Box* rhs, int op_type) {
         if (!rewrite_args.out_success) {
             rewriter.reset(NULL);
         } else
-            rewriter->commitReturning(rewrite_args.out_rtn);
+            rewriter->commitReturning(std::move(rewriter), rewrite_args.out_rtn);
         return rtn;
     } else {
         // TODO: switch from our op types to cpythons
@@ -6062,7 +6062,7 @@ extern "C" Box* unaryop(Box* operand, int op_type) {
             ReturnConvention return_convention;
             std::tie(rtn, return_convention) = srewrite_args.getReturn();
             if (return_convention == ReturnConvention::HAS_RETURN)
-                rewriter->commitReturning(rtn);
+                rewriter->commitReturning(std::move(rewriter), rtn);
         }
     } else
         rtn = callattrInternal0<CXX, NOT_REWRITABLE>(operand, op_name, CLASS_ONLY, NULL, ArgPassSpec(0));
@@ -6232,14 +6232,14 @@ PyObject* applySliceIntern(PyObject* u, PyObject* v, PyObject* w,
                                          ->setType(RefType::OWNED);
                 if (S == CXX)
                     rewriter->checkAndThrowCAPIException(r_rtn);
-                rewriter->commitReturning(r_rtn);
+                rewriter->commitReturning(std::move(rewriter), r_rtn);
             } else {
                 RewriterVar* r_guard = rewriter->call(false, (void*)isSliceIndexHelper, r_start, r_stop);
                 r_guard->addGuardNotEq(0);
 
                 RewriterVar* r_rtn = rewriter->call(true, (void*)&applySliceHelper<S>, r_obj, r_start, r_stop)
                                          ->setType(RefType::OWNED);
-                rewriter->commitReturning(r_rtn);
+                rewriter->commitReturning(std::move(rewriter), r_rtn);
             }
         }
         return applySliceHelper<S>(u, v, w);
@@ -6265,7 +6265,7 @@ PyObject* applySliceIntern(PyObject* u, PyObject* v, PyObject* w,
         if (!rewrite_args.out_success) {
             rewriter.reset(NULL);
         } else if (rtn) {
-            rewriter->commitReturning(rewrite_args.out_rtn);
+            rewriter->commitReturning(std::move(rewriter), rewrite_args.out_rtn);
         }
         return rtn;
     } else {
@@ -6326,9 +6326,9 @@ int assignSliceInternal(PyObject* u, PyObject* v, PyObject* w, PyObject* x,
                     = rewriter->call(true, (void*)sq->sq_ass_slice, r_obj, r_start_int, r_stop_int, r_value);
                 if (S == CXX) {
                     rewriter->checkAndThrowCAPIException(r_rtn, -1, assembler::MovType::L);
-                    rewriter->commit();
+                    rewriter->commit(std::move(rewriter));
                 } else
-                    rewriter->commitReturningNonPython(r_rtn);
+                    rewriter->commitReturningNonPython(std::move(rewriter), r_rtn);
             } else {
                 RewriterVar* r_guard = rewriter->call(false, (void*)isSliceIndexHelper, r_start, r_stop);
                 r_guard->addGuardNotEq(0);
@@ -6336,9 +6336,9 @@ int assignSliceInternal(PyObject* u, PyObject* v, PyObject* w, PyObject* x,
                 RewriterVar* r_rtn
                     = rewriter->call(true, (void*)&assignSliceHelper<S>, r_obj, r_start, r_stop, r_value);
                 if (S == CAPI)
-                    rewriter->commitReturningNonPython(r_rtn);
+                    rewriter->commitReturningNonPython(std::move(rewriter), r_rtn);
                 else
-                    rewriter->commit();
+                    rewriter->commit(std::move(rewriter));
             }
         }
         return assignSliceHelper<S>(u, v, w, x);
@@ -6503,7 +6503,7 @@ template <ExceptionStyle S> static Box* getitemEntry(Box* target, Box* slice, vo
         if (!rewrite_args.out_success) {
             rewriter.reset(NULL);
         } else if (rtn) {
-            rewriter->commitReturning(rewrite_args.out_rtn);
+            rewriter->commitReturning(std::move(rewriter), rewrite_args.out_rtn);
         }
     } else {
         rtn = getitemInternal<S>(target, slice);
@@ -6544,7 +6544,7 @@ extern "C" void setitem(Box* target, Box* slice, Box* value) {
             r_m->addAttrGuard(offsetof(PyMappingMethods, mp_ass_subscript), (intptr_t)m->mp_ass_subscript);
             RewriterVar* r_ret = rewriter->call(true, (void*)m->mp_ass_subscript, r_obj, r_slice, r_value);
             rewriter->checkAndThrowCAPIException(r_ret, -1, assembler::MovType::L);
-            rewriter->commit();
+            rewriter->commit(std::move(rewriter));
         }
 
         int ret = m->mp_ass_subscript(target, slice, value);
@@ -6574,7 +6574,7 @@ extern "C" void setitem(Box* target, Box* slice, Box* value) {
     Py_DECREF(rtn);
 
     if (rewriter.get())
-        rewriter->commit();
+        rewriter->commit(std::move(rewriter));
 }
 
 // del target[slice]
@@ -6609,7 +6609,7 @@ extern "C" void delitem(Box* target, Box* slice) {
     Py_DECREF(rtn);
 
     if (rewriter.get())
-        rewriter->commit();
+        rewriter->commit(std::move(rewriter));
 }
 
 void Box::delattr(BoxedString* attr, DelattrRewriteArgs* rewrite_args) {
@@ -6785,13 +6785,13 @@ extern "C" Box* createBoxedIterWrapperIfNeeded(Box* o) {
         } else if (r) {
             RewriterVar* rtn = rewrite_args.getReturn(ReturnConvention::HAS_RETURN);
             rtn->addGuard((uint64_t)r);
-            rewriter->commitReturning(r_o);
+            rewriter->commitReturning(std::move(rewriter), r_o);
             return incref(o);
         } else /* if (!r) */ {
             rewrite_args.assertReturnConvention(ReturnConvention::NO_RETURN);
             RewriterVar* var = rewriter.get()->call(true, (void*)createBoxedIterWrapper, rewriter->getArg(0));
             var->setType(RefType::OWNED);
-            rewriter->commitReturning(var);
+            rewriter->commitReturning(std::move(rewriter), var);
             return createBoxedIterWrapper(o);
         }
     }
@@ -6847,7 +6847,7 @@ extern "C" Box* getiterHelper(Box* o) {
         Box* r = getiterHelperInternal(o, &rewrite_args);
         if (rewrite_args.out_success) {
             RewriterVar* r_rtn = rewrite_args.out_rtn;
-            rewriter->commitReturning(r_rtn);
+            rewriter->commitReturning(std::move(rewriter), r_rtn);
         }
         return r;
     } else {
@@ -7335,7 +7335,7 @@ extern "C" Box* getGlobal(Box* globals, BoxedString* name) {
                 if (r) {
                     if (rewriter.get()) {
                         RewriterVar* r_rtn = rewrite_args.getReturn(ReturnConvention::HAS_RETURN);
-                        rewriter->commitReturning(r_rtn);
+                        rewriter->commitReturning(std::move(rewriter), r_rtn);
                     }
 
                     assert(r->ob_refcnt > 0);
@@ -7381,7 +7381,7 @@ extern "C" Box* getGlobal(Box* globals, BoxedString* name) {
                 rewriter.reset(NULL);
             else if (rtn) {
                 auto r_rtn = rewrite_args.getReturn(ReturnConvention::HAS_RETURN);
-                rewriter->commitReturning(r_rtn);
+                rewriter->commitReturning(std::move(rewriter), r_rtn);
             } else {
                 rewrite_args.getReturn(); // just to make the asserts happy
                 rewriter.reset(NULL);
@@ -7424,7 +7424,7 @@ extern "C" void setGlobal(Box* globals, BoxedString* name, STOLEN(Box*) value) {
             setattrInternal(globals, name, value, &rewrite_args);
 
             if (rewrite_args.out_success)
-                rewriter->commit();
+                rewriter->commit(std::move(rewriter));
         } else {
             setattrInternal(globals, name, value, NULL);
         }

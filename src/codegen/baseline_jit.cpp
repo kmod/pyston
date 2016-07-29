@@ -773,7 +773,7 @@ void JitFragmentWriter::abortCompilation() {
 std::pair<int, llvm::DenseSet<int>> JitFragmentWriter::finishCompilation() {
     RELEASE_ASSERT(!assembler->hasFailed(), "");
 
-    commit();
+    commit(NULL);
     if (failed) {
         blocks_aborted.insert(block);
         code_block.fragmentAbort(false);

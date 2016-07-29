@@ -674,9 +674,9 @@ public:
     // note: commitReturning decref all of the args variables, whereas commit() does not.
     // This should probably be made more consistent, but functions that use commitReturning
     // usually want this behavior but ones that use
-    void commit();
-    void commitReturning(RewriterVar* rtn);
-    void commitReturningNonPython(RewriterVar* rtn);
+    void commit(std::unique_ptr<Rewriter> uthis);
+    void commitReturning(std::unique_ptr<Rewriter> uthis, RewriterVar* rtn);
+    void commitReturningNonPython(std::unique_ptr<Rewriter> uthis, RewriterVar* rtn);
 
     void addDependenceOn(ICInvalidator&);
 

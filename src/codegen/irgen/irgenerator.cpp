@@ -21,6 +21,7 @@
 #include "analysis/scoping_analysis.h"
 #include "analysis/type_analysis.h"
 #include "asm_writing/icinfo.h"
+#include "asm_writing/rewriter.h"
 #include "codegen/codegen.h"
 #include "codegen/compvars.h"
 #include "codegen/irgen.h"
@@ -425,8 +426,7 @@ private:
 
         static int n = 0;
         n++;
-        if (n == 1 || n == 6 || (n == 3 || n == 5 || n == 4))
-            llvm::Value* pendingcalls_to_do_val = builder.CreateLoad(pendingcalls_to_do_gv, true /* volatile */);
+        llvm::Value* pendingcalls_to_do_val = builder.CreateLoad(pendingcalls_to_do_gv, true /* volatile */);
         //llvm::Value* is_zero
             //= builder.CreateICmpEQ(pendingcalls_to_do_val, getConstantInt(0, pendingcalls_to_do_val->getType()));
 
@@ -551,6 +551,16 @@ private:
                                   const std::vector<llvm::Value*>& args,
                                   const std::vector<llvm::Value*>& ic_stackmap_args, const UnwindInfo& unw_info,
                                   ExceptionStyle target_exception_style, llvm::Value* capi_exc_value) {
+    
+        ICInfo* bjit_ic_info = ICInfo::getBJitICInfoForNode(unw_info.current_stmt);
+        Rewriter* r = NULL;
+        if (bjit_ic_info)
+            auto r = bjit_ic_info->getRewriter();
+
+        if (r) {
+            RELEASE_ASSERT(0, "");
+        }
+
         if (pp == NULL)
             assert(ic_stackmap_args.size() == 0);
 

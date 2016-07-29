@@ -22,6 +22,7 @@
 
 #include "asm_writing/assembler.h"
 #include "asm_writing/mc_writer.h"
+#include "asm_writing/rewriter.h"
 #include "codegen/patchpoints.h"
 #include "codegen/unwinding.h"
 #include "core/common.h"
@@ -30,6 +31,8 @@
 #include "runtime/types.h"
 
 namespace pyston {
+
+bool in_llvm = false;
 
 using namespace pyston::assembler;
 
@@ -73,8 +76,22 @@ void ICInvalidator::invalidateAll() {
     dependents.clear();
 }
 
+Rewriter* ICInfo::getRewriter() {
+    // TODO: maybe go backwards? pick the most recently rewritten?
+    for (auto&& slot : this->slots) {
+        if (slot.rewriter.get())
+            return slot.rewriter.get();
+    }
+    return NULL;
+}
+
+ICSlotInfo::ICSlotInfo(ICInfo* ic, uint8_t* addr, int size)
+    : ic(ic), start_addr(addr), num_inside(0), size(size), used(false) {
+}
+
 void ICSlotInfo::clear() {
     ic->clear(this);
+    rewriter.reset(nullptr);
     used = false;
 
     if (num_inside == 0)

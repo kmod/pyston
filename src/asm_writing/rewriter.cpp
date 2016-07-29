@@ -436,6 +436,7 @@ RewriterVar* RewriterVar::getAttr(int offset, Location dest, assembler::MovType 
 }
 
 void Rewriter::_getAttr(RewriterVar* result, RewriterVar* ptr, int offset, Location dest, assembler::MovType type) {
+    RELEASE_ASSERT(!in_llvm, "");
     if (LOG_IC_ASSEMBLY)
         assembler->comment("_getAttr");
 

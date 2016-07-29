@@ -37,6 +37,10 @@ class ICInvalidator;
 #define IC_INVALDITION_HEADER_SIZE 6
 #define IC_MEGAMORPHIC_THRESHOLD 100
 
+class Rewriter;
+
+extern bool in_llvm;
+
 // This registers a decref info in the constructor and deregisters it in the destructor.
 struct DecrefInfo {
     uint64_t ip;
@@ -57,8 +61,7 @@ struct DecrefInfo {
 
 struct ICSlotInfo {
 public:
-    ICSlotInfo(ICInfo* ic, uint8_t* addr, int size)
-        : ic(ic), start_addr(addr), num_inside(0), size(size), used(false) {}
+    ICSlotInfo(ICInfo* ic, uint8_t* addr, int size);
 
     ICInfo* ic;
     uint8_t* start_addr;
@@ -70,6 +73,10 @@ public:
     std::vector<void*> gc_references;
     std::vector<DecrefInfo> decref_infos;
     std::vector<ICInvalidator*> invalidators; // ICInvalidators that reference this slotinfo
+
+    std::unique_ptr<Rewriter> rewriter;
+
+    //~ICSlotInfo();
 
     void clear();
 };
@@ -143,6 +150,8 @@ public:
     void associateNodeWithBJitICInfo(AST* node);
 
     void appendDecrefInfosTo(std::vector<DecrefInfo>& dest_decref_infos);
+
+    Rewriter* getRewriter();
 };
 
 typedef std::tuple<int /*offset of jmp instr*/, int /*end of jmp instr*/, assembler::ConditionCode> NextSlotJumpInfo;

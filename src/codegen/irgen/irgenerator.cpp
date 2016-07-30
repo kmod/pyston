@@ -554,13 +554,19 @@ private:
                                   ExceptionStyle target_exception_style, llvm::Value* capi_exc_value) {
     
         assert(unw_info.current_stmt);
-        assert(unw_info.current_stmt->type == AST_TYPE::Assign);
-        ICInfo* bjit_ic_info = ICInfo::getBJitICInfoForNode(ast_cast<AST_Assign>(unw_info.current_stmt)->value);
+        ICInfo* bjit_ic_info;
+        if (unw_info.current_stmt->type == AST_TYPE::Assign)
+            bjit_ic_info = ICInfo::getBJitICInfoForNode(ast_cast<AST_Assign>(unw_info.current_stmt)->value);
+        else
+            bjit_ic_info = ICInfo::getBJitICInfoForNode(ast_cast<AST_Expr>(unw_info.current_stmt)->value);
+
         Rewriter* r = NULL;
         if (bjit_ic_info)
             r = bjit_ic_info->getRewriter();
 
         if (r) {
+            emitSetCurrentStmt(unw_info.current_stmt);
+
             assert(!rewriter_emitter);
             rewriter_emitter = this;
 
@@ -586,8 +592,8 @@ private:
                 a.action();
             }
 
-            auto r = rewriter_return;
-            assert(r);
+            auto ret = rewriter_return;
+            assert(ret);
             assert(rewriter_emitter == this);
 
             rewriter_emitter = NULL;
@@ -595,8 +601,14 @@ private:
             rewriter_return = NULL;
             deopt_block = NULL;
 
-            //return r;
-            return llvm::cast<llvm::Instruction>(this->getBuilder()->CreatePtrToInt(r, g.i64));
+            // TODO: enable this.  Can determine that we won't need it for some though?
+            //emitPendingCallsCheck(NULL);
+
+            // This seems silly (refconsuming it to force an incref);
+            // But it's probably necessary.
+            auto cast = llvm::cast<llvm::Instruction>(this->getBuilder()->CreatePtrToInt(ret, g.i64));
+            this->refConsumed(ret, cast);
+            return llvm::cast<llvm::Instruction>(cast);
         }
 
         if (pp == NULL)

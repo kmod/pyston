@@ -402,14 +402,14 @@ RewriterVar* JitFragmentWriter::emitGetClsAttr(RewriterVar* obj, BoxedString* s)
     return emitPPCall((void*)getclsattr, { obj, imm(s) }, 2 * 256).first->setType(RefType::OWNED);
 }
 
-RewriterVar* JitFragmentWriter::emitGetGlobal(BoxedString* s) {
+RewriterVar* JitFragmentWriter::emitGetGlobal(AST_expr* expr, BoxedString* s) {
     if (s->s() == "None") {
         RewriterVar* r = imm(Py_None)->setType(RefType::BORROWED);
         return r;
     }
 
     RewriterVar* globals = getInterp()->getAttr(ASTInterpreterJitInterface::getGlobalsOffset());
-    return emitPPCall((void*)getGlobal, { globals, imm(s) }, 128).first->setType(RefType::OWNED);
+    return emitPPCall((void*)getGlobal, { globals, imm(s) }, 128, expr).first->setType(RefType::OWNED);
 }
 
 RewriterVar* JitFragmentWriter::emitGetItem(AST_expr* node, RewriterVar* value, RewriterVar* slice) {

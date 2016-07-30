@@ -1707,7 +1707,7 @@ Value ASTInterpreter::visit_name(AST_Name* node) {
             assert(!node->is_kill);
             Value v;
             if (jit)
-                v.var = jit->emitGetGlobal(node->id.getBox());
+                v.var = jit->emitGetGlobal(node, node->id.getBox());
 
             v.o = getGlobal(frame_info.globals, node->id.getBox());
             return v;

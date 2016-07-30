@@ -7312,7 +7312,7 @@ extern "C" Box* getGlobal(Box* globals, BoxedString* name) {
 
     { /* anonymous scope to make sure destructors get run before we err out */
         std::unique_ptr<Rewriter> rewriter(
-            Rewriter::createRewriter(__builtin_extract_return_addr(__builtin_return_address(0)), 3, "getGlobal"));
+            Rewriter::createRewriter(__builtin_extract_return_addr(__builtin_return_address(0)), 2, "getGlobal"));
 
         Box* r;
         if (globals->cls == module_cls) {

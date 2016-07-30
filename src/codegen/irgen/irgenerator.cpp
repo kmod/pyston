@@ -553,19 +553,25 @@ private:
                                   const std::vector<llvm::Value*>& ic_stackmap_args, const UnwindInfo& unw_info,
                                   ExceptionStyle target_exception_style, llvm::Value* capi_exc_value) {
     
-        assert(unw_info.current_stmt);
         ICInfo* bjit_ic_info;
-        if (unw_info.current_stmt->type == AST_TYPE::Assign)
-            bjit_ic_info = ICInfo::getBJitICInfoForNode(ast_cast<AST_Assign>(unw_info.current_stmt)->value);
-        else
-            bjit_ic_info = ICInfo::getBJitICInfoForNode(ast_cast<AST_Expr>(unw_info.current_stmt)->value);
-
         Rewriter* r = NULL;
-        if (bjit_ic_info)
-            r = bjit_ic_info->getRewriter();
+        if (!unw_info.is_after_deopt) {
+            assert(unw_info.current_stmt);
+            if (unw_info.current_stmt->type == AST_TYPE::Assign)
+                bjit_ic_info = ICInfo::getBJitICInfoForNode(ast_cast<AST_Assign>(unw_info.current_stmt)->value);
+            else if (unw_info.current_stmt->type == AST_TYPE::Branch)
+                bjit_ic_info = ICInfo::getBJitICInfoForNode(ast_cast<AST_Branch>(unw_info.current_stmt)->test);
+            else
+                bjit_ic_info = ICInfo::getBJitICInfoForNode(ast_cast<AST_Expr>(unw_info.current_stmt)->value);
+
+            if (bjit_ic_info)
+                r = bjit_ic_info->getRewriter();
+        }
 
         if (r) {
             emitSetCurrentStmt(unw_info.current_stmt);
+
+            // TODO: do deopt-if-pending-call here?
 
             assert(!rewriter_emitter);
             rewriter_emitter = this;

@@ -371,9 +371,11 @@ search_for_exec_prefix(char *argv0_path, char *home)
     do {
         n = strlen(exec_prefix);
         joinpath(exec_prefix, lib_python);
-        joinpath(exec_prefix, "lib-dynload");
-        if (isdir(exec_prefix))
+        // Pyston change: xxx need to find a better way of doing this (match CPython's dir structure more closely)
+        if (isdir(exec_prefix)) {
+            joinpath(exec_prefix, "lib-dynload");
             return 1;
+        }
         exec_prefix[n] = '\0';
         reduce(exec_prefix);
     } while (exec_prefix[0]);

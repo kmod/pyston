@@ -1722,6 +1722,9 @@ BORROWED(Box*) typeLookup(BoxedClass* cls, BoxedString* attr, GetattrRewriteArgs
         rewrite_args = NULL;
     }
 
+    if (unlikely(!cls->tp_mro))
+        PyType_Ready(cls);
+
     Box* val = NULL;
 
     // CAPI types defined inside external extension normally don't have this flag set while all types inside pyston set

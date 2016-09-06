@@ -26,6 +26,13 @@ import warnings
 warnings.warn("The compiler package is deprecated and removed in Python 3.x.",
               DeprecationWarning, stacklevel=2)
 
-from compiler.transformer import parse, parseFile
-from compiler.visitor import walk
-from compiler.pycodegen import compile, compileFile
+# from compiler.transformer import parse, parseFile
+# from compiler.visitor import walk
+# from compiler.pycodegen import compile, compileFile
+
+# Pyston hack: we don't support any of this package, but in order to support py.test we want
+# to be able to import submodules even if they aren't used.
+# Names imported above:
+parse = parseFile = walk = compile = compileFile = NotImplemented
+# Modules in this package:
+ast = consts = future = misc = pyassem = pycodegen = symbols = syntax = transformer = visotor = NotImplemented

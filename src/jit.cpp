@@ -231,6 +231,8 @@ int handleArg(char code) {
         ENABLE_TRACEBACKS = false;
     } else if (code == 'G') {
         enableGdbSegfaultWatcher();
+    } else if (code == 's') {
+        // workaround for now -- we should actually do what this option requests
     } else {
         fprintf(stderr, "Unknown option: -%c\n", code);
         return 2;
@@ -331,7 +333,7 @@ static int main(int argc, char** argv) noexcept {
 
         // Suppress getopt errors so we can throw them ourselves
         opterr = 0;
-        while ((code = getopt(argc, argv, "+:OLqdIibpjtrTRSUvnxXEBac:FuPTGm:")) != -1) {
+        while ((code = getopt(argc, argv, "+:OLqdIibpjtrTRsSUvnxXEBac:FuPTGm:")) != -1) {
             if (code == 'c') {
                 assert(optarg);
                 command = optarg;

@@ -1030,17 +1030,17 @@ void setupSet() {
 
     set_cls->giveAttr("__cmp__", new BoxedFunction(BoxedCode::create((void*)setNocmp, NONE, 2, "set.__cmp__")));
     frozenset_cls->giveAttr("__cmp__", new BoxedFunction(BoxedCode::create((void*)setNocmp, NONE, 2, "set.__cmp__")));
-    set_cls->giveAttr("__eq__", new BoxedFunction(BoxedCode::create((void*)setEq, BOXED_BOOL, 2, "set.__eq__")));
+    set_cls->giveAttr("__eq__", new BoxedFunction(BoxedCode::create((void*)setEq, UNKNOWN, 2, "set.__eq__")));
     frozenset_cls->giveAttrBorrowed("__eq__", set_cls->getattr(getStaticString("__eq__")));
-    set_cls->giveAttr("__ne__", new BoxedFunction(BoxedCode::create((void*)setNe, BOXED_BOOL, 2, "set.__ne__")));
+    set_cls->giveAttr("__ne__", new BoxedFunction(BoxedCode::create((void*)setNe, UNKNOWN, 2, "set.__ne__")));
     frozenset_cls->giveAttrBorrowed("__ne__", set_cls->getattr(getStaticString("__ne__")));
-    set_cls->giveAttr("__le__", new BoxedFunction(BoxedCode::create((void*)setLe, BOXED_BOOL, 2, "set.__le__")));
+    set_cls->giveAttr("__le__", new BoxedFunction(BoxedCode::create((void*)setLe, UNKNOWN, 2, "set.__le__")));
     frozenset_cls->giveAttrBorrowed("__le__", set_cls->getattr(getStaticString("__le__")));
-    set_cls->giveAttr("__lt__", new BoxedFunction(BoxedCode::create((void*)setLt, BOXED_BOOL, 2, "set.__lt__")));
+    set_cls->giveAttr("__lt__", new BoxedFunction(BoxedCode::create((void*)setLt, UNKNOWN, 2, "set.__lt__")));
     frozenset_cls->giveAttrBorrowed("__lt__", set_cls->getattr(getStaticString("__lt__")));
-    set_cls->giveAttr("__ge__", new BoxedFunction(BoxedCode::create((void*)setGe, BOXED_BOOL, 2, "set.__ge__")));
+    set_cls->giveAttr("__ge__", new BoxedFunction(BoxedCode::create((void*)setGe, UNKNOWN, 2, "set.__ge__")));
     frozenset_cls->giveAttrBorrowed("__ge__", set_cls->getattr(getStaticString("__ge__")));
-    set_cls->giveAttr("__gt__", new BoxedFunction(BoxedCode::create((void*)setGt, BOXED_BOOL, 2, "set.__gt__")));
+    set_cls->giveAttr("__gt__", new BoxedFunction(BoxedCode::create((void*)setGt, UNKNOWN, 2, "set.__gt__")));
     frozenset_cls->giveAttrBorrowed("__gt__", set_cls->getattr(getStaticString("__gt__")));
 
     set_cls->giveAttr("__nonzero__",

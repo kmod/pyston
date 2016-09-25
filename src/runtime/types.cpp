@@ -1421,6 +1421,8 @@ extern "C" Box* createUserClass(BoxedString* name, Box* _bases, Box* _attr_dict)
 
         Box* msg = e.value;
         assert(msg);
+        incref(msg);
+#if 0
         // TODO this is an extra Pyston check and I don't think we should have to do it:
         if (isSubclass(e.value->cls, BaseException)) {
             static BoxedString* message_str = getStaticString("message");
@@ -1428,6 +1430,7 @@ extern "C" Box* createUserClass(BoxedString* name, Box* _bases, Box* _attr_dict)
         } else {
             incref(msg);
         }
+#endif
 
         if (PyString_Check(msg)) {
             auto newmsg = PyString_FromFormat("Error when calling the metaclass bases\n"

@@ -573,15 +573,28 @@ void checkAndThrowCAPIException() {
             value = incref(Py_None);
 
         // This is similar to PyErr_NormalizeException:
-        if (!isSubclass(value->cls, type)) {
-            if (value->cls == tuple_cls) {
-                value = runtimeCall(type, ArgPassSpec(0, 0, true, false), autoDecref(value), NULL, NULL, NULL, NULL);
-            } else if (value == Py_None) {
-                value = runtimeCall(type, ArgPassSpec(0), NULL, NULL, NULL, NULL, NULL);
-                Py_DECREF(Py_None);
-            } else {
-                value = runtimeCall(type, ArgPassSpec(1), autoDecref(value), NULL, NULL, NULL, NULL);
+        try {
+            if (!isSubclass(value->cls, type)) {
+                if (value->cls == tuple_cls) {
+                    value
+                        = runtimeCall(type, ArgPassSpec(0, 0, true, false), autoDecref(value), NULL, NULL, NULL, NULL);
+                } else if (value == Py_None) {
+                    value = runtimeCall(type, ArgPassSpec(0), NULL, NULL, NULL, NULL, NULL);
+                    Py_DECREF(Py_None);
+                } else {
+                    value = runtimeCall(type, ArgPassSpec(1), autoDecref(value), NULL, NULL, NULL, NULL);
+                }
             }
+        } catch (ExcInfo e) {
+            // TODO: recursion-depth counting
+            if (tb && !e.traceback)
+                e.traceback = incref(tb);
+
+            Py_XDECREF(type);
+            Py_XDECREF(tb);
+
+            setCAPIException(e);
+            throwCAPIException();
         }
 
         RELEASE_ASSERT(value->cls == type, "unsupported");

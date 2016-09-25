@@ -63,3 +63,23 @@ t = type("test", (), {u"test" : 2, 1000L : 3, 1.0 : 4})
 print t.__dict__[u"test"], t.test
 print t.__dict__[1000L]
 print t.__dict__[1.0]
+
+
+def f2():
+    class E(Exception):
+        def __init__(self, a, b):
+            print a, b
+
+    class M(type):
+        def __init__(cls, name, bases, attrs):
+            print type(cls), name, bases, attrs
+            raise E(1, 2)
+
+    try:
+        class C(object):
+            __metaclass__ = M
+    except:
+        import traceback
+        traceback.print_exc()
+f2()
+

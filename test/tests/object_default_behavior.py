@@ -33,3 +33,5 @@ print sorted(c.__dict__.items())
 
 v = 1
 print object.__hash__(v) == object.__hash__(v)
+
+print object.__doc__

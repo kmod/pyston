@@ -2435,8 +2435,9 @@ extern "C" Box* getclsattr(Box* obj, BoxedString* attr) {
                 ReturnConvention return_convention;
                 std::tie(r_rtn, return_convention) = rewrite_args.getReturn();
 
-                assert(return_convention == ReturnConvention::HAS_RETURN
-                       || return_convention == ReturnConvention::MAYBE_EXC);
+                ASSERT(return_convention == ReturnConvention::HAS_RETURN
+                           || return_convention == ReturnConvention::MAYBE_EXC,
+                       "%d", return_convention);
                 rewriter->commitReturning(r_rtn);
             } else {
                 rewrite_args.getReturn(); // just to make the asserts happy
@@ -2859,7 +2860,7 @@ template <ExceptionStyle S> Box* _getattrEntry(Box* obj, BoxedString* attr, void
 #endif
     }
 
-    std::unique_ptr<Rewriter> rewriter(Rewriter::createRewriter(return_addr, 2, "getattr"));
+    std::unique_ptr<Rewriter> rewriter(nullptr);//Rewriter::createRewriter(return_addr, 2, "getattr"));
 
 #if 0 && STAT_TIMERS
     static uint64_t* st_id = Stats::getStatCounter("us_timer_slowpath_getattr_patchable");
@@ -3900,7 +3901,7 @@ Box* _callattrEntry(Box* obj, BoxedString* attr, CallattrFlags flags, Box* arg1,
     // Uncomment this to help debug if callsites aren't getting rewritten:
     // printf("Slowpath call: %p (%s.%s)\n", return_addr, obj->cls->tp_name, attr->c_str());
 
-    std::unique_ptr<Rewriter> rewriter(Rewriter::createRewriter(return_addr, num_orig_args, "callattr"));
+    std::unique_ptr<Rewriter> rewriter(nullptr);//;Rewriter::createRewriter(return_addr, num_orig_args, "callattr"));
     Box* rtn;
 
     LookupScope scope = flags.cls_only ? CLASS_ONLY : CLASS_OR_INST;

@@ -75,6 +75,19 @@ Box* BoxedCode::varnames(Box* b, void*) noexcept {
 
     auto& param_names = code->param_names;
 
+    // HACK
+    if (!param_names.takes_param_names) {
+        static std::vector<Box*> fake_names;
+        int num_args = code->num_args + code->takes_varargs + code->takes_kwargs;
+        while (fake_names.size() < num_args) {
+            char buf[80];
+            snprintf(buf, sizeof(buf), "fakeparamname_%ld", fake_names.size());
+            fake_names.push_back(getStaticString(buf));
+        }
+
+        return BoxedTuple::create(num_args, &fake_names[0]);
+    }
+
     RELEASE_ASSERT(param_names.takes_param_names, "shouldn't have created '%s' as a BoxedFunction",
                    code->name->c_str());
 

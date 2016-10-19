@@ -122,7 +122,7 @@ void computeFixedPoint(typename BBAnalyzer<T>::Map&& initial_map, CFGBlock* init
         ending_states.insert(std::make_pair(block, std::move(ending)));
     }
 
-    if (VERBOSITY("analysis")) {
+    if (VERBOSITY("analysis") >= 2) {
         printf("%d BBs, %d evaluations = %.1f evaluations/block\n", starting_states.size(), num_evaluations,
                1.0 * num_evaluations / starting_states.size());
     }

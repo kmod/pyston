@@ -83,16 +83,19 @@ static void compileIR(CompiledFunction* cf, llvm::Function* func, EffortLevel ef
         assert(compiled);
         ASSERT(compiled == cf->code, "cf->code should have gotten filled in");
 
-        long us = _t.end();
+        long duration = _t.end();
         static StatCounter us_jitting("us_compiling_jitting");
-        us_jitting.log(us);
+        us_jitting.log(duration);
         static StatCounter num_jits("num_jits");
         num_jits.log();
 
-        if (VERBOSITY() >= 1 && us > 100000) {
-            printf("Took %.1fs to compile %s\n", us * 0.000001, func->getName().data());
-            printf("Has %ld basic blocks\n", func->getBasicBlockList().size());
-        }
+        //if (VERBOSITY() >= 1) {
+            //uint64_t us = (uint64_t)(duration / Stats::estimateCPUFreq());
+            //if (us > 100000) {
+                //printf("Took %.1fs to compile %s\n", us * 0.000001, func->getName().data());
+                //printf("Has %ld basic blocks\n", func->getBasicBlockList().size());
+            //}
+        //}
 
         g.engine->removeModule(module);
         delete module;
@@ -171,6 +174,7 @@ CompiledFunction* compileFunction(BoxedCode* code, FunctionSpecialization* spec,
                 ss << p.first << ": " << p.second->debugName() << '\n';
             }
         }
+        //ss << "Has " << code->source->cfg->blocks.size() << " cfg blocks\n";
 
         ss << "\033[0m";
         printf("%s", ss.str().c_str());
@@ -190,9 +194,14 @@ CompiledFunction* compileFunction(BoxedCode* code, FunctionSpecialization* spec,
     long us = _t.end();
     static StatCounter us_compiling("us_compiling");
     us_compiling.log(us);
-    if (VERBOSITY() >= 1 && us > 100000) {
-        printf("Took %ldms to compile %s::%s (effort %d)!\n", us / 1000, code->filename->c_str(), name->c_str(),
-               (int)effort);
+
+    if (VERBOSITY() >= 1) {
+        uint64_t real_us = (uint64_t)(us / Stats::estimateCPUFreq());
+        if (real_us > 100000) {
+            printf("\033[31mTook %ldms to compile %s::%s (effort %d)!\033[0m\n", real_us / 1000, code->filename->c_str(), name->c_str(),
+                   (int)effort);
+            printf("\033[31mHas %ld basic blocks\033[0m\n", code->source->cfg->blocks.size());
+        }
     }
 
     static StatCounter num_compiles("num_compiles");

@@ -622,7 +622,7 @@ Value ASTInterpreter::visit_jump(BST_Jump* node) {
     }
 
     if (jit) {
-        if (backedge && ENABLE_OSR && !FORCE_INTERPRETER)
+        if (backedge && ENABLE_OSR && !FORCE_INTERPRETER && getCode()->source->cfg->blocks.size() < 200)
             jit->emitOSRPoint(node);
         jit->emitJump(node->target);
         finishJITing(node->target);
@@ -1944,7 +1944,7 @@ Box* astInterpretFunction(BoxedCode* code, Box* closure, Box* generator, Box* gl
     SourceInfo* source_info = code->source.get();
 
     assert((!globals) == source_info->scoping.areGlobalsFromModule());
-    bool can_reopt = ENABLE_REOPT && !FORCE_INTERPRETER;
+    bool can_reopt = ENABLE_REOPT && !FORCE_INTERPRETER && code->source->cfg->blocks.size() < 200;
 
     if (unlikely(can_reopt
                  && (FORCE_OPTIMIZE || !ENABLE_INTERPRETER || code->times_interpreted > REOPT_THRESHOLD_BASELINE))) {

@@ -7,7 +7,7 @@ def get_scc(edges):
     for n, s in edges.iteritems():
         for n2 in s:
             assert n2 in edges
-            reverse_edges.setdefault(n2, set()).add(n)
+            reverse_edges.setdefault(n2, []).append(n)
 
 
     visited_set = set()

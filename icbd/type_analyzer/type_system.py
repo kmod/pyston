@@ -9,6 +9,8 @@ import sys
 import traceback
 import types as _types
 
+set = list
+
 class Union(object):
     __slots__ = ("_types",)
 
@@ -174,7 +176,9 @@ class Union(object):
 
         types = set()
         for u in unions:
-            types.update(u._types)
+            for t in u._types:
+                if t not in types:
+                    types.append(t)
 
         if not types:
             return Union.EMPTY
@@ -223,7 +227,7 @@ class Type(object):
 
         if l in self.__listeners:
             return
-        self.__listeners.add(l)
+        self.__listeners.append(l)
         # if len(self.__listeners) > 50:
             # traceback.print_stack()
             # print
@@ -1029,9 +1033,9 @@ class InstanceType(Type):
         assert isinstance(name, str) or name is None
         assert callable(l)
         if name:
-            self.__name_listeners.setdefault(name, set()).add(l)
+            self.__name_listeners.setdefault(name, set()).append(l)
         else:
-            self.__sub_listeners.add(l)
+            self.__sub_listeners.append(l)
 
     def fire_name_listeners(self, name):
         for l in self.__name_listeners.get(name, []):
@@ -1146,7 +1150,7 @@ class Module(Type):
         else:
             key = fn
         assert not key in Module.__created, (Module.__created, name, fn)
-        Module.__created.add(key)
+        Module.__created.append(key)
 
         assert isinstance(name, str)
         assert isinstance(fn, str)
@@ -1164,9 +1168,9 @@ class Module(Type):
         assert isinstance(name, str) or name is None
         assert callable(l)
         if name:
-            self.__name_listeners.setdefault(name, set()).add(l)
+            self.__name_listeners.setdefault(name, set()).append(l)
         else:
-            self.__sub_listeners.add(l)
+            self.__sub_listeners.append(l)
 
     def fire_listeners(self, name):
         for l in self.__name_listeners.get(name, []):
@@ -1484,9 +1488,9 @@ class ClassType(Type):
         assert isinstance(name, str) or name is None
         assert callable(l)
         if name:
-            self.__name_listeners.setdefault(name, set()).add(l)
+            self.__name_listeners.setdefault(name, set()).append(l)
         else:
-            self.__sub_listeners.add(l)
+            self.__sub_listeners.append(l)
 
     def fire_listeners(self, name):
         for l in self.__name_listeners.get(name, []):

@@ -32,6 +32,8 @@ from icbd.type_analyzer.builtins import (
         )
 from icbd.util import cfa
 
+set = list
+
 from icbd.type_analyzer.type_system import (
         Union,
 
@@ -69,6 +71,8 @@ from icbd.type_analyzer.type_system import (
 
         )
 
+random.seed(12345)
+
 class Scope(object):
     def __init__(self):
         self.__listeners = {} # name -> set of listeners on that name
@@ -78,7 +82,7 @@ class Scope(object):
         if not l:
             return
         assert callable(l)
-        self.__listeners.setdefault(name, set()).add(l)
+        self.__listeners.setdefault(name, set()).append(l)
 
     def fire_listeners(self, name):
         for l in self.__listeners.get(name, []):
@@ -93,7 +97,7 @@ class ModuleScope(Scope):
         assert fn.startswith('/'), fn
 
         assert not fn in ModuleScope.__modules_scoped
-        ModuleScope.__modules_scoped.add(fn)
+        ModuleScope.__modules_scoped.append(fn)
 
         super(ModuleScope, self).__init__()
 
@@ -181,7 +185,7 @@ class FunctionScope(Scope):
         assert not name in self._names
 
         if name not in self._global_names:
-            self._global_names.add(name)
+            self._global_names.append(name)
             self.fire_listeners(name)
 
     def filename(self):
@@ -694,7 +698,9 @@ class Analyzer(object):
             keys = set()
             subs = [self.get_type_constraints(v) for v in e.values]
             for d in subs:
-                keys.update(d)
+                for e in d:
+                    if e not in keys:
+                        keys.append(e)
 
             r = {}
 
@@ -1421,7 +1427,7 @@ class Engine(object):
                 self._dependencies[(node, nid)] = s
                 assert nid in cfg.connects_to, (cfg.connects_to.keys(), nid, cfg.start, cfg.end)
                 for n2 in cfg.connects_to[nid]:
-                    s.add((node, n2))
+                    s.append((node, n2))
 
             assert not (node, cfg.end) in self._dependencies
             self._dependencies[(node, cfg.end)] = set()
@@ -1461,7 +1467,7 @@ class Engine(object):
     def mark_changed(self, key, not_dependent=False):
         if not not_dependent:
             assert self._cur_key
-            self._dependencies.setdefault(self._cur_key, set()).add(key)
+            self._dependencies.setdefault(self._cur_key, set()).append(key)
         self.queue.mark_changed(key)
 
     def _do_basic_block(self, node, block_id):
@@ -1483,10 +1489,6 @@ class Engine(object):
             self.not_buffered = set()
             self.in_queue = set()
             self.last_run = {}
-            self.time_est = {}
-
-            self.prev_run = None
-            self.prev_run_start = None
 
             self.scc = None
             self.scc_iteration = -1e9
@@ -1494,8 +1496,8 @@ class Engine(object):
         def mark_changed(self, k):
             if k in self.in_queue:
                 return
-            self.not_buffered.add(k)
-            self.in_queue.add(k)
+            self.not_buffered.append(k)
+            self.in_queue.append(k)
 
         def num_to_evaluate(self):
             return len(self.in_queue)
@@ -1518,7 +1520,7 @@ class Engine(object):
                 if self.last_run.get(k, -1e9) < iteration - total:
                     p = ADD_REGARDLESS
                 else:
-                    p = MAX_SCC - self.scc.get(k, MAX_SCC) + 0.1 / (0.1 + self.time_est.get(k, 0))
+                    p = MAX_SCC - self.scc.get(k, MAX_SCC)
                     # I feel like it should be beneficial to either prioritize running recent on non-recent nodes.  doesnt seem to be.
                     # p += 100.0 / (100.0 + iteration - self.last_run[k])
 
@@ -1536,14 +1538,6 @@ class Engine(object):
         def get_next(self, iteration, total, engine):
             assert len(self.in_queue) == len(self.not_buffered) + len(self.buffer)
 
-            if self.prev_run:
-                elapsed = time.time() - self.prev_run_start
-                if self.prev_run in self.time_est:
-                    est = self.time_est[self.prev_run]
-                else:
-                    est = elapsed
-                self.time_est[self.prev_run] = .5 * (elapsed + est)
-
             if not self.in_queue:
                 return None
 
@@ -1553,8 +1547,6 @@ class Engine(object):
             r = self.buffer.popleft()
             self.in_queue.remove(r)
             self.last_run[r] = iteration
-            self.prev_run = r
-            self.prev_run_start = time.time()
             return r
 
     def analyze(self):

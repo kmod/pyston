@@ -24,7 +24,6 @@ namespace pyston {
 struct CompiledFunction;
 class OSRExit;
 class Box;
-class BoxedDict;
 
 CompiledFunction* compilePartialFuncInternal(OSRExit* exit);
 void* compilePartialFunc(OSRExit*);

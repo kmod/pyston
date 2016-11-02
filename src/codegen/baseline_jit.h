@@ -30,7 +30,6 @@ namespace pyston {
 
 class BST_stmt;
 class Box;
-class BoxedDict;
 class BoxedList;
 class BoxedTuple;
 

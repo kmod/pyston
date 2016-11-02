@@ -34,7 +34,7 @@ extern bool IN_SHUTDOWN;
 
 class BoxedString;
 class BoxedList;
-class BoxedDict;
+typedef PyDictObject BoxedDict;
 class BoxedTuple;
 class BoxedFile;
 class BoxedClosure;
@@ -1024,6 +1024,7 @@ inline BoxAndHash& incref(BoxAndHash& b) {
     return b;
 }
 
+#if 0
 class BoxedDict : public Box {
 public:
     typedef pyston::DenseMap<BoxAndHash, Box*, BoxAndHash::Comparisons, detail::DenseMapPair<BoxAndHash, Box*>,
@@ -1069,6 +1070,7 @@ public:
     static int clear(Box* self) noexcept;
 };
 static_assert(sizeof(BoxedDict) == sizeof(PyDictObject), "");
+#endif
 
 class CodeConstants {
 private:

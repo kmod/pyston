@@ -1042,10 +1042,10 @@ BORROWED(BoxedDict*) Box::getDict() {
     BoxedDict** d_ptr = getDictPtr();
     BoxedDict* d = *d_ptr;
     if (!d) {
-        d = *d_ptr = new BoxedDict();
+        d = *d_ptr = (BoxedDict*)PyDict_New();
     }
 
-    assert(d->cls == dict_cls);
+    assert((BoxedClass*)d->ob_type == dict_cls);
     return d;
 }
 
@@ -1162,11 +1162,12 @@ template <Rewritable rewritable> BORROWED(Box*) Box::getattr(BoxedString* attr, 
 
         BoxedDict* d = getDict();
 
-        auto it = d->d.find(attr);
-        if (it == d->d.end()) {
-            return NULL;
-        }
-        return it->second;
+        return PyDict_GetItem((PyObject*)d, attr);
+        //auto it = d->d.find(attr);
+        //if (it == d->d.end()) {
+            //return NULL;
+        //}
+        //return it->second;
     }
 
     if (rewrite_args)

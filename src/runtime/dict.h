@@ -1,3 +1,4 @@
+#if 0
 // Copyright (c) 2014-2016 Dropbox, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -57,4 +58,5 @@ void dictMerge(BoxedDict* self, Box* other);
 Box* dictUpdate(BoxedDict* self, BoxedTuple* args, BoxedDict* kwargs);
 }
 
+#endif
 #endif

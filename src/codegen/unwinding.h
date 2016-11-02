@@ -26,7 +26,6 @@ typedef struct unw_cursor unw_cursor_t;
 namespace pyston {
 
 class Box;
-class BoxedDict;
 class BoxedModule;
 struct FrameInfo;
 

@@ -27,7 +27,6 @@ class BST_stmt;
 class BST_Jump;
 class Box;
 class BoxedClosure;
-class BoxedDict;
 struct LineInfo;
 
 extern const void* interpreter_instr_addr;

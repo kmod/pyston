@@ -709,7 +709,7 @@ extern std::vector<BoxedClass*> classes;
 // that you don't need a tp_clear (as opposed to haven't added one yet)
 #define NOCLEAR ((inquiry)-1)
 
-class BoxedDict;
+typedef PyDictObject BoxedDict;
 class BoxedString;
 
 #if STAT_ALLOCATION_TYPES

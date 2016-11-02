@@ -1,3 +1,4 @@
+#if 0
 // Copyright (c) 2014-2016 Dropbox, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -1291,3 +1292,4 @@ void setupDict() {
     PyType_Ready(&PyDictItems_Type);
 }
 }
+#endif

@@ -1378,6 +1378,39 @@ void HCAttrs::clearForDealloc() noexcept {
     _clearRaw();
 }
 
+class DictIterHelper {
+private:
+    BoxedDict* d;
+    Py_ssize_t ppos;
+        Box* key, *val;
+
+public:
+    DictIterHelper(BoxedDict* d) : d(d), ppos(0), key(NULL), val(NULL) {
+    }
+
+    struct iter {
+        DictIterHelper* d;
+        iter(DictIterHelper* d) : d(d) {}
+
+        bool operator!=(const iter& rhs) {
+            return d != rhs.d;
+        }
+
+        iter& operator++() {
+            int r = PyDict_Next((PyObject*)d, &d->ppos, &d->key, &d->val);
+            if (r == 0) {
+                d = NULL;
+            }
+            return *this;
+        }
+
+        std::pair<Box*, Box*> operator*() { return std::make_pair(d->key, d->val); }
+    };
+
+    iter begin() { return iter(this); }
+    iter end() { return iter(NULL); }
+};
+
 void HCAttrs::moduleClear() noexcept {
     auto hcls = this->hcls;
     if (!hcls)
@@ -1388,15 +1421,16 @@ void HCAttrs::moduleClear() noexcept {
 
     if (hcls->type == HiddenClass::DICT_BACKED) {
         BoxedDict* d = (BoxedDict*)this->attr_list->attrs[0];
-        for (auto&& e : d->d) {
-            if (PyString_Check(e.first.value) && first_check_func(PyString_AsString(e.first.value))) {
+        //for (auto&& e : d->d) {
+        for (auto&& e : DictIterHelper(d)) {
+            if (PyString_Check(e.first) && first_check_func(PyString_AsString(e.first))) {
                 AUTO_DECREF(e.second);
                 e.second = incref(Py_None);
             }
         }
 
-        for (auto&& e : d->d) {
-            if (PyString_Check(e.first.value) && second_check_func(PyString_AsString(e.first.value))) {
+        for (auto&& e : DictIterHelper(d)) {
+            if (PyString_Check(e.first) && second_check_func(PyString_AsString(e.first))) {
                 AUTO_DECREF(e.second);
                 e.second = incref(Py_None);
             }
@@ -1606,7 +1640,7 @@ void Box::setattr(BoxedString* attr, BORROWED(Box*) val, SetattrRewriteArgs* rew
 
     if (cls->instancesHaveDictAttrs()) {
         BoxedDict* d = getDict();
-        int r = PyDict_SetItem(d, attr, val);
+        int r = PyDict_SetItem((PyObject*)d, attr, val);
         if (r == -1)
             throwCAPIException();
         return;
@@ -4090,13 +4124,11 @@ static int placeKeyword(const ParamNames* param_names, llvm::SmallVector<bool, 8
     }
 
     if (okwargs) {
-        Box*& v = okwargs->d[kw_name];
-        if (v) {
+        if (PyDict_GetItem((PyObject*)okwargs, kw_name)) {
             raiseExcHelper(TypeError, "%.200s() got multiple values for keyword argument '%s'", func_name_cb(),
                            kw_name->c_str());
         }
-        incref(kw_name);
-        v = incref(kw_val);
+        PyDict_SetItem((PyObject*)okwargs, kw_name, kw_val);
         return -1;
     } else {
         raiseExcHelper(TypeError, "%.200s() got an unexpected keyword argument '%s'", func_name_cb(), kw_name->c_str());
@@ -4486,7 +4518,7 @@ Box* rearrangeArgumentsAndCallInternal(ParamReceiveSpec paramspec, const ParamNa
 
             if (!param_names || !param_names->takes_param_names) {
                 assert(!rewrite_args); // would need to add it to r_kwargs
-                okwargs->d[incref((*keyword_names)[i])] = incref(kw_val);
+                PyDict_SetItem((PyObject*)okwargs, (*keyword_names)[i], kw_val);
                 continue;
             }
 
@@ -4514,7 +4546,7 @@ Box* rearrangeArgumentsAndCallInternal(ParamReceiveSpec paramspec, const ParamNa
 
         if (!kwargs) {
             // TODO could try to avoid creating this
-            kwargs = new BoxedDict();
+            kwargs = PyDict_New();
         } else if (!PyDict_Check(kwargs)) {
             BoxedDict* d = new BoxedDict();
             dictMerge(d, kwargs);

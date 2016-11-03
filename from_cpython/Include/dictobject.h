@@ -97,27 +97,14 @@ typedef struct {
     char _filler[24];
 } PyDictObject;
 
-// Pyston change: these are no longer static objects:
-#if 0
 PyAPI_DATA(PyTypeObject) PyDict_Type;
 PyAPI_DATA(PyTypeObject) PyDictIterKey_Type;
 PyAPI_DATA(PyTypeObject) PyDictIterValue_Type;
 PyAPI_DATA(PyTypeObject) PyDictIterItem_Type;
-#endif
+
 PyAPI_DATA(PyTypeObject) PyDictKeys_Type;
 PyAPI_DATA(PyTypeObject) PyDictItems_Type;
 PyAPI_DATA(PyTypeObject) PyDictValues_Type;
-
-PyAPI_DATA(PyTypeObject*) dict_cls;
-#define PyDict_Type (*dict_cls)
-PyAPI_DATA(PyTypeObject*) attrwrapper_cls;
-#define PyAttrWrapper_Type (*attrwrapper_cls)
-PyAPI_DATA(PyTypeObject*) dictiterkey_cls;
-#define PyDictIterKey_Type (*dictiterkey_cls)
-PyAPI_DATA(PyTypeObject*) dictitervalue_cls;
-#define PyDictIterValue_Type (*dictitervalue_cls)
-PyAPI_DATA(PyTypeObject*) dictiteritem_cls;
-#define PyDictIterItem_Type (*dictiteritem_cls)
 
 #define PyDict_Check(op) \
                  PyType_FastSubclass(Py_TYPE(op), Py_TPFLAGS_DICT_SUBCLASS)

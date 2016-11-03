@@ -1378,6 +1378,12 @@ void HCAttrs::clearForDealloc() noexcept {
     _clearRaw();
 }
 
+void dictMerge(BoxedDict* to, Box* from) {
+    int r = PyDict_Merge((PyObject*)to, from, true);
+    if (r)
+        throwCAPIException();
+}
+
 class DictIterHelper {
 private:
     BoxedDict* d;
@@ -4550,24 +4556,23 @@ Box* rearrangeArgumentsAndCallInternal(ParamReceiveSpec paramspec, const ParamNa
         } else if (!PyDict_Check(kwargs)) {
             BoxedDict* d = new BoxedDict();
             dictMerge(d, kwargs);
-            kwargs = d;
+            kwargs = (PyObject*)d;
         } else {
             Py_INCREF(kwargs);
         }
         DecrefHandle<Box> _kwargs_handle(kwargs);
 
         assert(PyDict_Check(kwargs));
-        BoxedDict* d_kwargs = static_cast<BoxedDict*>(kwargs);
 
         BoxedDict* okwargs = NULL;
-        if (d_kwargs->d.size()) {
+        if (PyDict_Size(kwargs)) {
             okwargs = get_okwargs();
 
             if (!okwargs && (!param_names || !param_names->takes_param_names))
                 raiseExcHelper(TypeError, "%s() doesn't take keyword arguments", func_name_cb());
         }
 
-        for (const auto& p : *d_kwargs) {
+        for (const auto& p : DictIterHelper((BoxedDict*)kwargs)) {
             auto k = coerceUnicodeToStr<CXX>(p.first);
             AUTO_DECREF(k);
 

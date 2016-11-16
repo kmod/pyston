@@ -396,10 +396,12 @@ static void pickGlobalsAndLocals(Box*& globals, Box*& locals) {
         auto requested_builtins = PyDict_GetItemString(globals_dict, "__builtins__");
         if (requested_builtins == NULL)
             PyDict_SetItemString(globals_dict, "__builtins__", PyEval_GetBuiltins());
-        else
-            RELEASE_ASSERT(requested_builtins == builtins_module
-                               || requested_builtins == builtins_module->getAttrWrapper(),
-                           "we don't support overriding __builtins__");
+        else {
+            PyDict_SetItemString(globals_dict, "__builtins__", PyEval_GetBuiltins());
+            // RELEASE_ASSERT(requested_builtins == builtins_module
+            //|| requested_builtins == builtins_module->getAttrWrapper(),
+            //"we don't support overriding __builtins__");
+        }
     }
 }
 
